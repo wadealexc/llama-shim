@@ -1,0 +1,5 @@
+{
+    "default": "gpt-oss-20b-mxfp4.gguf",
+    "models": "./models",
+    "logs": "./logs"
+}
