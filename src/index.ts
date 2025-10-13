@@ -1,12 +1,31 @@
 import * as fs from 'fs';
+import { PassThrough } from 'stream';
 import path, { basename } from 'path';
 import { networkInterfaces } from "os";
 import { spawn, ChildProcess } from 'child_process';
 import fetch, { type RequestInit, Response } from 'node-fetch';
 
-
 import express from 'express';
 import chalk from 'chalk';
+
+type ChatResponse = {
+    created: number,
+    id: string,
+    model: string,
+    system_fingerprint: string,
+    object: string,
+    timings?: any,
+    choices: ChatChoice[],
+};
+
+type ChatChoice = {
+    finish_reason: string | null,
+    index: number,
+    delta: {
+        content?: string,
+        reasoning_content?: string,
+    }
+};
 
 /* -------------------- CONFIGURATION -------------------- */
 const EXTERNAL_PORT = 8081;                     // Port the proxy listens on
@@ -95,10 +114,14 @@ let llamaStarting: Promise<void> | null = null;
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 const outPath = path.join(LOG_DIR, `llama-${timestamp}.out.log`);
 const errPath = path.join(LOG_DIR, `llama-${timestamp}.err.log`);
+const chatPath = path.join(LOG_DIR, `llama-${timestamp}.chat.json`);
 
 // open append write streams for stdout/stderr
-let stdoutStream: fs.WriteStream = fs.createWriteStream(outPath, { flags: 'a' });
-let stderrStream: fs.WriteStream = fs.createWriteStream(errPath, { flags: 'a' });
+const stdoutStream: fs.WriteStream = fs.createWriteStream(outPath, { flags: 'a' });
+const stderrStream: fs.WriteStream = fs.createWriteStream(errPath, { flags: 'a' });
+
+const chatLogs: any[] = [];
+const chatStream: fs.WriteStream = fs.createWriteStream(chatPath, { flags: 'a' });
 
 /**
  * Start the llama‑server with the given model path.
@@ -134,7 +157,13 @@ async function startLlamaServer(modelPath: string) {
         if (llamaProcess.stderr && stderrStream) llamaProcess.stderr.pipe(stderrStream);
 
         llamaProcess.once('error', (err) => {
-            console.error('llama-server process error:', err);
+            // Don't log AbortErrors; we get these when we kill the process
+            if ((err as DOMException)?.name === 'AbortError') {
+                console.log(`llama-server received abort`);
+            } else {
+                console.error('llama-server process error:', err);
+            }
+
             llamaAbort?.abort();
         });
 
@@ -170,7 +199,7 @@ async function startLlamaServer(modelPath: string) {
 
                     // Log and return - ready for requests!
                     currentModelPath = modelPath;
-                    console.log(`llama-server is now running on port ${INTERNAL_PORT}`);
+                    console.log(chalk.green(`llama-server is now running on port ${INTERNAL_PORT}`));
                     console.log(chalk.dim(` - logs -> stdout: ${outPath}`));
                     console.log(chalk.dim(` - logs -> stderr: ${errPath}`));
                     return;
@@ -199,6 +228,8 @@ async function stopLlamaServer() {
     if (!llamaProcess) return;
 
     const proc = llamaProcess;
+    console.log(chalk.dim(`killing existing llama-server (pid ${proc.pid})... `));
+
     llamaProcess = null;
     llamaAbort?.abort();
 
@@ -207,13 +238,10 @@ async function stopLlamaServer() {
         proc.once('exit', () => resolve());
     });
 
-    process.stdout.write(chalk.dim(`killing existing llama-server (pid ${proc.pid})... `));
-
     // Wait for llama-server to exit cleanly before returning
-    try { proc.kill('SIGTERM'); } catch { }
     await done;
 
-    process.stdout.write(chalk.green(`done!\n`));
+    console.log(chalk.green(`done!`));
 }
 
 /**
@@ -224,31 +252,16 @@ async function stopLlamaServer() {
  * If we're already running the correct model, return the path of the
  * already-running model.
  */
-function parseModelPath(req: express.Request): string {
-    let body = req.body || {};
-
-    // If it's a Buffer and content type is JSON, parse it
-    if (Buffer.isBuffer(body) && req.headers['content-type']?.includes('application/json')) {
-        try {
-            const text = body.toString('utf8');
-            body = JSON.parse(text);
-            console.log(JSON.stringify(body, null, 2));
-        } catch (e) {
-            console.warn('Failed to parse JSON body:', e);
-        }
-    }
-
-    const requestedModel = body.model as string | undefined;
-
-    if (!requestedModel) {
+function parseModelPath(model: string | undefined): string {
+    if (!model) {
         console.error(`Request did not specify model; ignoring`);
         return currentModelPath;
     }
 
     // Resolve the target model path from the list of local models
-    const targetModelPath = MODELS.find(p => modelNameFromPath(p) === requestedModel);
+    const targetModelPath = MODELS.find(p => modelNameFromPath(p) === model);
     if (!targetModelPath) {
-        console.error(`Requested model "${requestedModel}" not found locally; ignoring`);
+        console.error(`Requested model "${model}" not found locally; ignoring`);
         return currentModelPath;
     }
 
@@ -281,17 +294,124 @@ app.get('/v1/models', async (_req, res) => {
  * Proxy all other routes to the internal llama‑server
  */
 app.all('/{*splat}', async (req, res) => {
+    let body = req.body || {};
+
+    // request: X / response: X will be logged
+    let chatLog: {
+        request?: any,
+        response?: any,
+    } = {};
+
+    // Convert request body to JSON
+    if (Buffer.isBuffer(body) && req.headers['content-type']?.includes('application/json')) {
+        try {
+            const text = body.toString('utf8');
+            body = JSON.parse(text);
+            chatLog.request = body.messages as {
+                content: string | any[],
+                role: string
+            }[] | undefined;
+
+            if (!chatLog.request) {
+                console.error(`body.messages used unexpected type: ${body.messages}`);
+            }
+        } catch (e) {
+            console.warn('Failed to parse JSON body:', e);
+        }
+    }
+
+    // As the response comes back from llama-server, we'll collect it
+    // here so we can log it without getting in the way of the shim response.
+    //
+    // The response is formatted as SSE (server-sent events).
+    // https://platform.openai.com/docs/api-reference/chat-streaming
+    const passThrough = new PassThrough();
+    const chunks: Buffer<any>[] = [];
+
+    passThrough.on('data', chunk => chunks.push(Buffer.from(chunk)));
+    passThrough.on('end', () => {
+        const body = Buffer.concat(chunks).toString('utf8');
+
+        // Try to decode as JSON
+        try {
+            chatLog.response = JSON.parse(body);
+            chatLogs.push(chatLog);
+            return;
+        } catch (e) {
+            // This won't be JSON if the request was made with `stream: true`
+            // Swallow error, handle below
+        }
+
+        // Parse SSE 'data' events
+        if (!chatLog.response) {
+            // This should give us an array of JSON strings representing various streamed tokens
+            chatLog.response = body.split('data: ').reduce<ChatResponse[]>((accum, event) => {
+                try {
+                    accum.push(JSON.parse(event.trim()));
+                } catch {
+
+                }
+
+                return accum;
+            }, []);
+        }
+
+        if (!chatLog.response) {
+            console.error('failed to decode llama-server response');
+            return;
+        }
+
+        // Combine streamed ChatResponse deltas into a single ChatResponse for logs
+        let finalResponse: ChatResponse | null = null;
+        let finalContent: string = '';
+        let finalReasoningContent: string = '';
+
+        (chatLog.response as ChatResponse[]).forEach(response => {
+            const choice = response.choices.at(0) as ChatChoice;
+
+            if (choice.delta.content) {
+                finalContent += choice.delta.content;
+            }
+
+            if (choice.delta.reasoning_content) {
+                finalReasoningContent += choice.delta.reasoning_content;
+            }
+
+            finalResponse = {
+                ...response,
+                choices: [{
+                    ...choice,
+                    delta: {
+                        content: finalContent,
+                        reasoning_content: finalReasoningContent,
+                    }
+                }]
+            }    
+        })
+
+        if (!finalResponse) {
+            console.error(`llama-server response in unknown format`);
+            return;
+        }
+
+        chatLog.response = finalResponse;
+        chatLogs.push(chatLog);
+    });
+
     try {
         // If the server is currently starting up, wait for it to finish before processing a request
         if (llamaStarting) await llamaStarting;
 
         // Ensure the correct model is running before forwarding
-        let modelPath = parseModelPath(req);
+        const modelPath = parseModelPath(body.model as string | undefined);
         if (modelPath !== currentModelPath) {
             console.log(`Requested new model ${modelNameFromPath(modelPath)}; restarting llama-server`);
             await stopLlamaServer();
             await startLlamaServer(modelPath);
         }
+
+        // Log chat messages
+        // const chatLog = body.messages as {}[] | undefined;
 
         // Build the URL for `llama-server`
         const llamaURL = `${LLAMA_SERVER_URL}${req.originalUrl}`;
@@ -318,8 +438,18 @@ app.all('/{*splat}', async (req, res) => {
         res.status(upstream.status);
         upstream.headers.forEach((v, k) => res.setHeader(k, v));
 
-        // stream the response directly back to the client
-        upstream.body?.pipe(res);
+        passThrough.once('error', err => {
+            console.error('passThrough error', err);
+            res.destroy(err);
+        });
+
+        upstream.body?.once('error', err => {
+            console.error('upstream body error', err);
+            passThrough.destroy(err);
+        });
+
+        // Stream llama-server response to both the client as well as our logs
+        upstream.body?.pipe(passThrough).pipe(res);
     } catch (err: any) {
         console.error('Proxy error:', err);
         res.status(502).json({ error: err.message || 'Bad gateway' });
@@ -347,13 +477,17 @@ app.listen(EXTERNAL_PORT, () => {
 async function shutdown(signal: string) {
     console.log(`Shutting down llama-shim (${chalk.yellow(signal)})`);
 
-    // 1. Kill llama-server if it's running
+    // 1. Write chat logs to file
+    chatStream.write(JSON.stringify(chatLogs, null, 2));
+
+    // 2. Kill llama-server if it's running
     await stopLlamaServer();
 
-    // 2. Close log streams
+    // 3. Close log streams
     try {
         stdoutStream.end();
         stderrStream.end();
+        chatStream.end();
     } catch (err) {
         console.error(`Unable to end output streams: ${err}`);
     }
