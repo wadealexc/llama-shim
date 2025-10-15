@@ -36,8 +36,9 @@ export class LlamaManager {
     private llamaProcess: ChildProcess | null = null;
     private llamaExited: Promise<void> | null = null;
 
-    private restarting = false;
     private runCounter = 0;
+    private activeRequests = 0;
+    private restartInProgress: Promise<void> | null = null;
 
     private logDirectory: string;
     private logFilePrefix: string;
@@ -64,24 +65,27 @@ export class LlamaManager {
      * model given by `modelPath`. This can take some time, as the old server
      * needs to be shut down, and the new model needs to be loaded.
      * 
-     * This method will throw if we're already working on a restart.
+     * This method will throw if we're already working on a restart, or if we have an
+     * active `forwardRequest`.
      * 
      * @param modelPath Path to the GGUF file to load into llama-server
      */
     async restartServer(modelPath: string) {
-        if (this.restarting) throw new Error(`LlamaManager.restartServer: attempted restart while restart in progress`);
-        // if (this.busy)
+        if (this.restartInProgress) throw new Error(`LlamaManager.restartServer: attempted restart while restart in progress`);
+        if (this.activeRequests !== 0) throw new Error(`LlamaManager.restartServer: attempted restart while requests active`);
 
-        this.restarting = true;
+        // Create a promise for the restart process that resolves when restart is complete
         this.runCounter++;
-
-        try {
-            await this.stopServer();
-            await this.#startServer(modelPath);
-            await this.#pollServer();
-        } finally {
-            this.restarting = false;
-        }
+        this.restartInProgress = new Promise<void>(async (resolve) => {
+            try {
+                await this.stopServer();
+                await this.#startServer(modelPath);
+                await this.#pollServer();
+            } finally {
+                this.restartInProgress = null;
+                resolve();
+            }
+        });
     }
 
     /**
@@ -152,26 +156,44 @@ export class LlamaManager {
         method: string,
         body: any,
     }): Promise<Response> {
-        const llamaURL = this.llamaServerURL + req.originalURL;
-
-        // Convert IncomingHttpHeaders to HeadersInit
-        const headers: HeadersInit = {};
-        for (const [key, value] of Object.entries(req.headers)) {
-            if (typeof value === 'string') headers[key] = value;
-            else if (Array.isArray(value)) headers[key] = value.join(', ');
+        // If the llama-server process is being restarted, wait for it to complete before continuing
+        if (this.restartInProgress) {
+            console.log(`LlamaManager.forwardRequest: restart in progress, waiting...`);
+            try { await this.restartInProgress }
+            catch (err) { console.error(`LlamaManager.forwardRequest: restart failed: ${err}, continuing`) }            
         }
 
-        // ensure Host header matches target
-        headers["host"] = this.llamaServerURL;
+        if (!this.llamaProcess) throw new Error(`LlamaManager.forwardRequest: no llama process found!`);
 
-        // Construct request
-        const init: RequestInit = {
-            method: req.method,
-            headers,
-            body: !(req.method === 'GET' || req.method === 'HEAD') ? req.body : undefined,
-        };
+        // Increment active requests, preventing calls to `restartServer` until this request is processed
+        // Note: this does NOT prevent calls to `stopServer` or `forceStopServer`, as we don't want to
+        // block shutdown.
+        this.activeRequests++;
 
-        return fetch(llamaURL, init);
+        try {
+            const llamaURL = this.llamaServerURL + req.originalURL;
+
+            // Convert IncomingHttpHeaders to HeadersInit
+            const headers: HeadersInit = {};
+            for (const [key, value] of Object.entries(req.headers)) {
+                if (typeof value === 'string') headers[key] = value;
+                else if (Array.isArray(value)) headers[key] = value.join(', ');
+            }
+
+            // ensure Host header matches target
+            headers["host"] = this.llamaServerURL;
+
+            // Construct request
+            const init: RequestInit = {
+                method: req.method,
+                headers,
+                body: !(req.method === 'GET' || req.method === 'HEAD') ? req.body : undefined,
+            };
+
+            return fetch(llamaURL, init);
+        } finally {
+            this.activeRequests--;
+        }
     }
 
     /* -------------------- PRIVATE METHODS -------------------- */
@@ -238,7 +260,7 @@ export class LlamaManager {
         // 'close' will only be emitted once the process exits AND all stdio streams
         // have been closed. 'exit' will be emitted once the process exits.
         this.llamaExited = new Promise<void>((resolve) => {
-            proc.once('close', () => console.log(`llama-server closed`));
+            // proc.once('close', () => resolve());
             proc.once('exit', (code, signal) => {
                 console.log(`llama-server exited code=${code} signal=${signal}`);
 

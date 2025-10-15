@@ -225,10 +225,8 @@ app.all('/{*splat}', async (req, res) => {
         chatLogs.push(chatLog);
     });
 
+    let llamaResponse: Response | null = null;
     try {
-        // If llama is currently busy, wait for a lock so we can process our prompt
-        // await llama.lock(); // TODO!
-
         // Ensure the correct model is running before forwarding
         const modelPath = parseModelPath(body.model as string | undefined);
         if (modelPath !== currentModelPath) {
@@ -242,37 +240,44 @@ app.all('/{*splat}', async (req, res) => {
             currentModelPath = modelPath;
         }
 
-        // Forward request to llama-server
-        const upstream = await llama.forwardRequest({
+        // Forward request to llama-server. If llama is busy, we'll wait here.
+        llamaResponse = await llama.forwardRequest({
             originalURL: req.originalUrl,
             headers: req.headers,
             method: req.method,
             body: req.body
         });
 
-        const color: ChalkInstance = upstream.status === 200 ? chalk.green : chalk.yellow;
-        const len = req.headers['content-length'] ?? '0';
-        console.log(`${req.method}: ${chalk.yellow(req.originalUrl)} (req len: ${bytes(Number(len))}) (status: ${color(upstream.status)})`);
-
         // copy headers and status from upstream
-        res.status(upstream.status);
-        upstream.headers.forEach((v, k) => res.setHeader(k, v));
+        res.status(llamaResponse.status);
+        llamaResponse.headers.forEach((v, k) => res.setHeader(k, v));
 
         passThrough.once('error', err => {
             console.error('passThrough error', err);
             res.destroy(err);
         });
 
-        upstream.body?.once('error', err => {
+        llamaResponse.body?.once('error', err => {
             console.error('upstream body error', err);
             passThrough.destroy(err);
         });
 
         // Stream llama-server response to both the client as well as our logs
-        upstream.body?.pipe(passThrough).pipe(res);
+        llamaResponse.body?.pipe(passThrough).pipe(res);
     } catch (err: any) {
         console.error('Proxy error:', err);
         res.status(502).json({ error: err.message || 'Bad gateway' });
+    } finally {
+        const len = req.headers['content-length'] ?? '0';
+
+        console.log(`${req.method}: ${chalk.yellow(req.originalUrl)} (req len: ${bytes(Number(len))})`);
+        if (!llamaResponse) {
+            console.log(chalk.dim.red(` -> failed before request made to llama-server`));
+        } else if (llamaResponse.status === 200) {
+            console.log(chalk.dim.green(` -> llama-server responds success (200)`));
+        } else {
+            console.log(chalk.dim.yellow(` -> llama-server responds with (${llamaResponse.status})`));
+        }
     }
 });
 
