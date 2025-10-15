@@ -1,12 +1,14 @@
 import * as fs from 'fs';
 import { PassThrough } from 'stream';
 import path, { basename } from 'path';
-import { networkInterfaces } from "os";
 import { spawn, ChildProcess } from 'child_process';
 import fetch, { type RequestInit, Response } from 'node-fetch';
 
 import express from 'express';
-import chalk from 'chalk';
+import chalk, { type ChalkInstance } from 'chalk';
+
+import * as utils from './utils.js';
+import { LlamaManager } from './llamaManager.js';
 
 type ChatResponse = {
     created: number,
@@ -30,11 +32,8 @@ type ChatChoice = {
 /* -------------------- CONFIGURATION -------------------- */
 const EXTERNAL_PORT = 8081;                     // Port the proxy listens on
 const INTERNAL_PORT = 8080;                     // Port llama‑server runs on
-const HOST_IP = getLanIPv4();                   // Our ip address
+const HOST_IP = utils.getLanIPv4();                   // Our ip address
 const LLAMA_SERVER_URL = `http://${HOST_IP}:${INTERNAL_PORT}`;
-
-const MODEL_FILE_EXT = '.gguf';                 // File extension for local models
-const LLM_COMMAND = 'llama-server';             // Command to start llama‑server
 
 const CONFIG_PATH = './shim-config.json';
 const CONFIG_JSON = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
@@ -43,7 +42,7 @@ const MODEL_FILES_PATH: string = CONFIG_JSON['models'];
 const LOG_DIR: string = CONFIG_JSON['logs'];
 
 // Find all models recursively in MODEL_FILES_PATH and check for the default model
-const MODELS = findModels(MODEL_FILES_PATH);
+const MODELS = utils.findModels(MODEL_FILES_PATH);
 if (MODELS.length === 0) {
     console.error('No local GGUF models found in the working directory.');
     process.exit(1);
@@ -58,191 +57,21 @@ try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch (e) {
     process.exit(1);
 }
 
-/* -------------------- UTILS -------------------- */
-
-// Recursively find all .gguf files in a given directory
-function findModels(dir: string): string[] {
-    let results: string[] = [];
-
-    const entries = fs.readdirSync(dir, { withFileTypes: true });
-
-    for (const entry of entries) {
-        const fullPath = path.join(dir, entry.name);
-
-        if (entry.isDirectory()) {
-            // Recurse into subdirectories
-            results = results.concat(findModels(fullPath));
-        } else if (entry.isFile() && fullPath.endsWith(".gguf")) {
-            // Match .gguf files
-            results.push(fullPath);
-        }
-    }
-
-    return results;
-}
-
-/**
- * Strip the .gguf extension from a model file
- * (input: "gpt-oss-20b-mxfp4.gguf", output: "gpt-oss-20b-mxfp4")
- */
-function modelNameFromPath(p: string): string {
-    return path.basename(p, MODEL_FILE_EXT);
-}
-
-function getLanIPv4(): string {
-    const nets = networkInterfaces();
-
-    for (const name of Object.keys(nets)) {
-        for (const net of nets[name] ?? []) {
-            // skip over non‑IPv4 and internal (loopback) addresses
-            if (net.family === "IPv4" && !net.internal) {
-                return net.address; // e.g., "192.168.1.42"
-            }
-        }
-    }
-
-    throw new Error(`unable to find valid LAN IPv4 address`);
-}
-
-/* -------------------- LLAMA-SERVER CONTROLLER -------------------- */
-
 let currentModelPath = DEFAULT_MODEL_PATH;
-let llamaProcess: ChildProcess | null = null;
-let llamaAbort: AbortController | null = null;
-let llamaStarting: Promise<void> | null = null;
-
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-const outPath = path.join(LOG_DIR, `llama-${timestamp}.out.log`);
-const errPath = path.join(LOG_DIR, `llama-${timestamp}.err.log`);
-const chatPath = path.join(LOG_DIR, `llama-${timestamp}.chat.json`);
+const logFilePrefix = `llama-${timestamp}`
 
-// open append write streams for stdout/stderr
-const stdoutStream: fs.WriteStream = fs.createWriteStream(outPath, { flags: 'a' });
-const stderrStream: fs.WriteStream = fs.createWriteStream(errPath, { flags: 'a' });
-
+const chatPath = path.join(LOG_DIR, `${logFilePrefix}.chat.json`);
 const chatLogs: any[] = [];
 const chatStream: fs.WriteStream = fs.createWriteStream(chatPath, { flags: 'a' });
 
-/**
- * Start the llama‑server with the given model path.
- */
-async function startLlamaServer(modelPath: string) {
-    // Don't start llama-server if we already have an active child process
-    if (llamaProcess) throw new Error(`Unable to stop llama-server before timeout elapsed`);
+/* -------------------- INIT LLAMA AND EXPRESS -------------------- */
 
-    // If we're currently starting up, reuse that promise
-    if (llamaStarting) return llamaStarting;
+// Start llama-server
+const llama = new LlamaManager(HOST_IP, INTERNAL_PORT, DEFAULT_MODEL_PATH, LOG_DIR, logFilePrefix);
 
-    llamaAbort = new AbortController();
-
-    llamaStarting = (async () => {
-        console.log(`Starting llama-server with model: ${chalk.magenta(modelPath)}`);
-        const args = [
-            '-m', modelPath,
-            '--host', HOST_IP,
-            '--port', INTERNAL_PORT.toString(),
-            '--ctx-size', '0',
-            '--jinja',
-            '-fa', '1',
-        ];
-
-        // spawn llama-server
-        llamaProcess = spawn(LLM_COMMAND, args, {
-            stdio: ['ignore', 'pipe', 'pipe'],
-            signal: llamaAbort.signal,
-        });
-
-        // pipe child's stdout/stderr to files
-        if (llamaProcess.stdout && stdoutStream) llamaProcess.stdout.pipe(stdoutStream);
-        if (llamaProcess.stderr && stderrStream) llamaProcess.stderr.pipe(stderrStream);
-
-        llamaProcess.once('error', (err) => {
-            // Don't log AbortErrors; we get these when we kill the process
-            if ((err as DOMException)?.name === 'AbortError') {
-                console.log(`llama-server received abort`);
-            } else {
-                console.error('llama-server process error:', err);
-            }
-
-            llamaAbort?.abort();
-        });
-
-        llamaProcess.once('close', (code, signal) => {
-            console.log(`llama-server exited code=${code} signal=${signal}`);
-            llamaAbort?.abort();
-        });
-
-        process.stdout.write(chalk.dim('waiting for llama-server to load model... '));
-        // const startTs = Date.now();
-
-        // Polling loop - try to query llama-server until success, abort or timeout
-        while (true) {
-            if (llamaAbort.signal.aborted) {
-                throw new Error(`Aborted while waiting for llama-server to start up`);
-            }
-
-            // Create per-request abort; link to main abort
-            const reqAbort = new AbortController();
-            const onOuterAbort = () => reqAbort.abort();
-            llamaAbort.signal.addEventListener('abort', onOuterAbort);
-
-            // Super short timeout for each request since it's all on this machine
-            const reqTimeout = setTimeout(() => reqAbort.abort(), 100);
-            reqTimeout.unref();
-
-            try {
-                process.stdout.write(chalk.dim(`ping...`));
-                const res = await fetch(LLAMA_SERVER_URL, { signal: reqAbort.signal });
-
-                if (res.ok) {
-                    process.stdout.write(chalk.green('done!\n'));
-
-                    // Log and return - ready for requests!
-                    currentModelPath = modelPath;
-                    console.log(chalk.green(`llama-server is now running on port ${INTERNAL_PORT}`));
-                    console.log(chalk.dim(` - logs -> stdout: ${outPath}`));
-                    console.log(chalk.dim(` - logs -> stderr: ${errPath}`));
-                    return;
-                }
-            } catch (err) {
-                // swallow err; keep polling
-            } finally {
-                // Clean up timeout/request signal
-                clearTimeout(reqTimeout);
-                llamaAbort.signal.removeEventListener('abort', onOuterAbort);
-            }
-
-            // sleep half a second, then retry
-            await new Promise((r) => setTimeout(r, 500)).then(() => undefined);
-        }
-    })();
-
-    try {
-        await llamaStarting;       // ensure this call doesn't return until ready
-    } finally {
-        llamaStarting = null;      // clear the lock for future starts
-    }
-}
-
-async function stopLlamaServer() {
-    if (!llamaProcess) return;
-
-    const proc = llamaProcess;
-    console.log(chalk.dim(`killing existing llama-server (pid ${proc.pid})... `));
-
-    llamaProcess = null;
-    llamaAbort?.abort();
-
-    const done = new Promise<void>((resolve) => {
-        proc.once('close', () => resolve());
-        proc.once('exit', () => resolve());
-    });
-
-    // Wait for llama-server to exit cleanly before returning
-    await done;
-
-    console.log(chalk.green(`done!`));
-}
+const app = express();
+app.use(express.raw({ type: () => true }));
 
 /**
  * Determine the model to use for an incoming request.
@@ -259,7 +88,7 @@ function parseModelPath(model: string | undefined): string {
     }
 
     // Resolve the target model path from the list of local models
-    const targetModelPath = MODELS.find(p => modelNameFromPath(p) === model);
+    const targetModelPath = MODELS.find(p => utils.modelNameFromPath(p) === model);
     if (!targetModelPath) {
         console.error(`Requested model "${model}" not found locally; ignoring`);
         return currentModelPath;
@@ -268,10 +97,7 @@ function parseModelPath(model: string | undefined): string {
     return targetModelPath;
 }
 
-/* -------------------- EXPRESS SETUP -------------------- */
-
-const app = express();
-app.use(express.raw({ type: () => true }));
+/* -------------------- ROUTES -------------------- */
 
 /**
  * /v1/models – return list of local models
@@ -279,7 +105,7 @@ app.use(express.raw({ type: () => true }));
 app.get('/v1/models', async (_req, res) => {
     try {
         const data = MODELS.map(p => ({
-            id: modelNameFromPath(p),
+            id: utils.modelNameFromPath(p),
             object: 'model',
             owned_by: 'llamacpp',
         }));
@@ -386,7 +212,7 @@ app.all('/{*splat}', async (req, res) => {
                         reasoning_content: finalReasoningContent,
                     }
                 }]
-            }    
+            }
         })
 
         if (!finalResponse) {
@@ -399,40 +225,32 @@ app.all('/{*splat}', async (req, res) => {
     });
 
     try {
-        // If the server is currently starting up, wait for it to finish before processing a request
-        if (llamaStarting) await llamaStarting;
+        // If llama is currently busy, wait for a lock so we can process our prompt
+        // await llama.lock(); // TODO!
 
         // Ensure the correct model is running before forwarding
         const modelPath = parseModelPath(body.model as string | undefined);
         if (modelPath !== currentModelPath) {
-            console.log(`Requested new model ${modelNameFromPath(modelPath)}; restarting llama-server`);
-            await stopLlamaServer();
-            await startLlamaServer(modelPath);
+            console.log(`Requested new model ${utils.modelNameFromPath(modelPath)}; restarting llama-server`);
+            try { await llama.restartServer(modelPath) } catch (err) {
+                console.error(`error restarting llama-server: `, err);
+                await shutdown('SIGTERM');
+                return;
+            }
+
+            currentModelPath = modelPath;
         }
 
-        // Log chat messages
-        // const chatLog = body.messages as {}[] | undefined;
-
-        // Build the URL for `llama-server`
-        const llamaURL = `${LLAMA_SERVER_URL}${req.originalUrl}`;
-
-        // Sanitize headers
-        const headers: HeadersInit = {};
-        for (const [key, value] of Object.entries(req.headers)) {
-            if (typeof value === "string") headers[key] = value;
-            else if (Array.isArray(value)) headers[key] = value.join(", ");
-        }
-
-        // ensure Host header matches target
-        headers["host"] = LLAMA_SERVER_URL;
-
-        const init: RequestInit = {
+        // Forward request to llama-server
+        const upstream = await llama.forwardRequest({
+            originalURL: req.originalUrl,
+            headers: req.headers,
             method: req.method,
-            headers,
-            body: req.method !== "GET" && req.method !== "HEAD" ? req.body : undefined,
-        };
+            body: req.body
+        });
 
-        const upstream = await fetch(llamaURL, init);
+        const color: ChalkInstance = upstream.status === 200 ? chalk.green : chalk.yellow;
+        console.log(`${req.method}: ${chalk.yellow(req.originalUrl)} (status: ${color(upstream.status)})`);
 
         // copy headers and status from upstream
         res.status(upstream.status);
@@ -456,53 +274,62 @@ app.all('/{*splat}', async (req, res) => {
     }
 });
 
-/* -------------------- START SERVER -------------------- */
-
-try {
-    await startLlamaServer(DEFAULT_MODEL_PATH);
-} catch (err) {
-    console.error('Failed to start llama-server:', err);
-    process.exit(1);
-}
+/* -------------------- START EXPRESS -------------------- */
 
 app.listen(EXTERNAL_PORT, () => {
     console.log(`llama-shim listening on ${chalk.cyan(`http://${HOST_IP}:${EXTERNAL_PORT}`)}`);
     console.log(chalk.dim(` - proxying to internal llama‑server on: ${chalk.cyan(INTERNAL_PORT)}`));
-    console.log(`Local GGUF models: [\n${MODELS.map(p => chalk.magenta(modelNameFromPath(p))).join(',\n')}\n]`);
+    console.log(`Local GGUF models: [\n${MODELS.map(p => chalk.magenta(utils.modelNameFromPath(p))).join(',\n')}\n]`);
     console.log(`Using default model: ${chalk.magenta(DEFAULT_MODEL)}`);
 });
 
 /* -------------------- STOP SERVER -------------------- */
 
 async function shutdown(signal: string) {
-    console.log(`Shutting down llama-shim (${chalk.yellow(signal)})`);
+    console.log(`shutting down llama-shim (${chalk.yellow(signal)})`);
 
-    // 1. Write chat logs to file
-    chatStream.write(JSON.stringify(chatLogs, null, 2));
+    await Promise.allSettled([
+        // 1. Kill llama-server if it's running
+        new Promise<void>(async (resolve) => {
+            try { await llama.stopServer() }
+            catch (err) { console.error(`shutdown: llama.stopServer failed: `, err) }
+            finally { resolve() }
+        }),
+        // 2. Write chat logs to file
+        new Promise<void>(async (resolve) => {
+            chatStream.once('finish', resolve);
+            chatStream.once('error', (err) => {
+                console.error(`shutdown: error writing logs to file: `, err);
+                resolve();
+            });
 
-    // 2. Kill llama-server if it's running
-    await stopLlamaServer();
+            // Actually do the write, then close the file
+            chatStream.write(JSON.stringify(chatLogs, null, 2));
+            chatStream.end();
+        })
+    ]);
 
-    // 3. Close log streams
-    try {
-        stdoutStream.end();
-        stderrStream.end();
-        chatStream.end();
-    } catch (err) {
-        console.error(`Unable to end output streams: ${err}`);
-    }
+    console.log('... done!');
 }
 
-// Listen to OS signals
-process.once("SIGINT", () => shutdown("SIGINT").then(() => process.exit(0)));
-process.once("SIGTERM", () => shutdown("SIGTERM").then(() => process.exit(0)));
+// Listen to OS signals, shutdown llama if needed
+for (const signal of ['SIGINT', 'SIGTERM', 'SIGHUP'] as const) {
+    process.once(signal, async () => {
+        await shutdown(signal);
+        process.exit(0);
+    });
+}
 
-// On uncaught exceptions / rejections, attempt to shutdown then exit nonzero
-process.on("uncaughtException", (err) => {
-    console.error("uncaughtException:", err);
-    shutdown("uncaughtException").then(() => process.exit(1));
-});
-process.on("unhandledRejection", (reason) => {
-    console.error("unhandledRejection:", reason);
-    shutdown("unhandledRejection").then(() => process.exit(1));
+// Shutdown if we have any uncaught errors
+for (const evt of ['uncaughtException', 'unhandledRejection'] as const) {
+    process.once(evt, async (err) => {
+        console.error(evt, err);
+        await shutdown('SIGTERM');
+        process.exit(1);
+    });
+}
+
+process.once('exit', () => {
+    // Attempt last-ditch cleanup, sending SIGKILL if we still have a process running
+    try { llama.forceStopServer() } catch { };
 });
