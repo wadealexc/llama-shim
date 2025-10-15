@@ -6,6 +6,7 @@ import fetch, { type RequestInit, Response } from 'node-fetch';
 
 import express from 'express';
 import chalk, { type ChalkInstance } from 'chalk';
+import bytes from 'bytes';
 
 import * as utils from './utils.js';
 import { LlamaManager } from './llamaManager.js';
@@ -71,7 +72,7 @@ const chatStream: fs.WriteStream = fs.createWriteStream(chatPath, { flags: 'a' }
 const llama = new LlamaManager(HOST_IP, INTERNAL_PORT, DEFAULT_MODEL_PATH, LOG_DIR, logFilePrefix);
 
 const app = express();
-app.use(express.raw({ type: () => true }));
+app.use(express.raw({ type: (() => true), limit: '50mb' }));
 
 /**
  * Determine the model to use for an incoming request.
@@ -250,7 +251,8 @@ app.all('/{*splat}', async (req, res) => {
         });
 
         const color: ChalkInstance = upstream.status === 200 ? chalk.green : chalk.yellow;
-        console.log(`${req.method}: ${chalk.yellow(req.originalUrl)} (status: ${color(upstream.status)})`);
+        const len = req.headers['content-length'] ?? '0';
+        console.log(`${req.method}: ${chalk.yellow(req.originalUrl)} (req len: ${bytes(Number(len))}) (status: ${color(upstream.status)})`);
 
         // copy headers and status from upstream
         res.status(upstream.status);
