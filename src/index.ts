@@ -10,6 +10,7 @@ import bytes from 'bytes';
 
 import * as utils from './utils.js';
 import { LlamaManager } from './llamaManager.js';
+import { readConfig } from './config.js';
 
 type ChatResponse = {
     created: number,
@@ -37,23 +38,20 @@ const HOST_IP = utils.getLanIPv4();                   // Our ip address
 const LLAMA_SERVER_URL = `http://${HOST_IP}:${INTERNAL_PORT}`;
 
 const CONFIG_PATH = './shim-config.json';
-const CONFIG_JSON = JSON.parse(fs.readFileSync(CONFIG_PATH, 'utf-8'));
-const DEFAULT_MODEL: string = CONFIG_JSON['default'];
-const MODEL_FILES_PATH: string = CONFIG_JSON['models'];
-const LOG_DIR: string = CONFIG_JSON['logs'];
+const cfg = readConfig(CONFIG_PATH);
 
 // Find all models recursively in MODEL_FILES_PATH and check for the default model
-const MODELS = utils.findModels(MODEL_FILES_PATH);
+const MODELS = utils.findModels(cfg.MODEL_FILES_PATH);
 if (MODELS.length === 0) {
     console.error('No local GGUF models found in the working directory.');
     process.exit(1);
 }
 
-const DEFAULT_MODEL_PATH = MODELS.find(model => basename(model) === DEFAULT_MODEL)
-    ?? (() => { throw new Error(`found ${MODELS.length} models; did not find requested default model: ${DEFAULT_MODEL}`); })();
+const DEFAULT_MODEL_PATH = MODELS.find(model => basename(model) === cfg.DEFAULT_MODEL)
+    ?? (() => { throw new Error(`found ${MODELS.length} models; did not find requested default model: ${cfg.DEFAULT_MODEL}`); })();
 
 // ensure log directory exists
-try { fs.mkdirSync(LOG_DIR, { recursive: true }); } catch (e) {
+try { fs.mkdirSync(cfg.LOG_DIR, { recursive: true }); } catch (e) {
     console.error('Failed to create log dir', e);
     process.exit(1);
 }
@@ -62,17 +60,26 @@ let currentModelPath = DEFAULT_MODEL_PATH;
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 const logFilePrefix = `llama-${timestamp}`
 
-const chatPath = path.join(LOG_DIR, `${logFilePrefix}.chat.json`);
+const chatPath = path.join(cfg.LOG_DIR, `${logFilePrefix}.chat.json`);
 const chatLogs: any[] = [];
 const chatStream: fs.WriteStream = fs.createWriteStream(chatPath, { flags: 'a' });
 
 /* -------------------- INIT LLAMA AND EXPRESS -------------------- */
 
-// Start llama-server
-const llama = new LlamaManager(HOST_IP, INTERNAL_PORT, DEFAULT_MODEL_PATH, LOG_DIR, logFilePrefix);
-
 const app = express();
 app.use(express.raw({ type: (() => true), limit: '50mb' }));
+
+app.listen(EXTERNAL_PORT, () => {
+    console.log(`llama-shim listening on ${chalk.cyan(`http://${HOST_IP}:${EXTERNAL_PORT}`)}`);
+});
+
+// Start llama-server
+const llama = new LlamaManager({
+    llamaServerIP: HOST_IP, llamaServerPort: INTERNAL_PORT,
+    defaultModelPath: DEFAULT_MODEL_PATH,
+    logDirectory: cfg.LOG_DIR, logFilePrefix: logFilePrefix,
+    sleepAfterXSeconds: cfg.SLEEP_AFTER_X_SECONDS,
+});
 
 /**
  * Determine the model to use for an incoming request.
@@ -279,15 +286,6 @@ app.all('/{*splat}', async (req, res) => {
             console.log(chalk.dim.yellow(` -> llama-server responds with (${llamaResponse.status})`));
         }
     }
-});
-
-/* -------------------- START EXPRESS -------------------- */
-
-app.listen(EXTERNAL_PORT, () => {
-    console.log(`llama-shim listening on ${chalk.cyan(`http://${HOST_IP}:${EXTERNAL_PORT}`)}`);
-    console.log(chalk.dim(` - proxying to internal llama‑server on: ${chalk.cyan(INTERNAL_PORT)}`));
-    console.log(`Local GGUF models: [\n${MODELS.map(p => chalk.magenta(utils.modelNameFromPath(p))).join(',\n')}\n]`);
-    console.log(`Using default model: ${chalk.magenta(DEFAULT_MODEL)}`);
 });
 
 /* -------------------- STOP SERVER -------------------- */
