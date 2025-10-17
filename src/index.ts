@@ -34,8 +34,10 @@ type ChatChoice = {
 /* -------------------- CONFIGURATION -------------------- */
 const EXTERNAL_PORT = 8081;                     // Port the proxy listens on
 const INTERNAL_PORT = 8080;                     // Port llama‑server runs on
-const HOST_IP = utils.getLanIPv4();                   // Our ip address
-const LLAMA_SERVER_URL = `http://${HOST_IP}:${INTERNAL_PORT}`;
+const HOST_IP = utils.getLanIPv4();             // Our ip address
+
+const LLAMA_SERVER_URL = `http://${HOST_IP}:${INTERNAL_PORT}`; // URL for underlying llama.cpp server
+const LLAMA_SHIM_URL = `http://${HOST_IP}:${EXTERNAL_PORT}`;   // URL we expose to frontend
 
 const CONFIG_PATH = './shim-config.json';
 const cfg = readConfig(CONFIG_PATH);
@@ -47,16 +49,12 @@ if (MODELS.length === 0) {
     process.exit(1);
 }
 
-const DEFAULT_MODEL_PATH = MODELS.find(model => basename(model) === cfg.DEFAULT_MODEL)
-    ?? (() => { throw new Error(`found ${MODELS.length} models; did not find requested default model: ${cfg.DEFAULT_MODEL}`); })();
-
 // ensure log directory exists
 try { fs.mkdirSync(cfg.LOG_DIR, { recursive: true }); } catch (e) {
     console.error('Failed to create log dir', e);
     process.exit(1);
 }
 
-let currentModelPath = DEFAULT_MODEL_PATH;
 const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 const logFilePrefix = `llama-${timestamp}`
 
@@ -70,45 +68,23 @@ const app = express();
 app.use(express.raw({ type: (() => true), limit: '50mb' }));
 
 app.listen(EXTERNAL_PORT, () => {
-    console.log(`llama-shim listening on ${chalk.cyan(`http://${HOST_IP}:${EXTERNAL_PORT}`)}`);
+    console.log(`llama-shim listening on ${chalk.cyan(LLAMA_SHIM_URL)}`);
 });
 
 // Start llama-server
 const llama = new LlamaManager({
     llamaServerIP: HOST_IP, llamaServerPort: INTERNAL_PORT,
-    defaultModelPath: DEFAULT_MODEL_PATH,
     logDirectory: cfg.LOG_DIR, logFilePrefix: logFilePrefix,
     sleepAfterXSeconds: cfg.SLEEP_AFTER_X_SECONDS,
+    modelFiles: MODELS, defaultModelName: cfg.DEFAULT_MODEL,
 });
-
-/**
- * Determine the model to use for an incoming request.
- * 
- * If the request specifies a model that is different from the one
- * currently running, return the path of the model that should be run.
- * If we're already running the correct model, return the path of the
- * already-running model.
- */
-function parseModelPath(model: string | undefined): string {
-    if (!model) {
-        console.error(`Request did not specify model; ignoring`);
-        return currentModelPath;
-    }
-
-    // Resolve the target model path from the list of local models
-    const targetModelPath = MODELS.find(p => utils.modelNameFromPath(p) === model);
-    if (!targetModelPath) {
-        console.error(`Requested model "${model}" not found locally; ignoring`);
-        return currentModelPath;
-    }
-
-    return targetModelPath;
-}
 
 /* -------------------- ROUTES -------------------- */
 
 /**
  * /v1/models – return list of local models
+ * TODO - use llamaManager instead
+ * TODO - return richer info
  */
 app.get('/v1/models', async (_req, res) => {
     try {
@@ -234,18 +210,8 @@ app.all('/{*splat}', async (req, res) => {
 
     let llamaResponse: Response | null = null;
     try {
-        // Ensure the correct model is running before forwarding
-        const modelPath = parseModelPath(body.model as string | undefined);
-        if (modelPath !== currentModelPath) {
-            console.log(`Requested new model ${utils.modelNameFromPath(modelPath)}; restarting llama-server`);
-            try { await llama.restartServer(modelPath) } catch (err) {
-                console.error(`error restarting llama-server: `, err);
-                await shutdown('SIGTERM');
-                return;
-            }
-
-            currentModelPath = modelPath;
-        }
+        // If our requested model isn't loaded, wait here
+        await llama.ready(body.model as string);
 
         // Forward request to llama-server. If llama is busy, we'll wait here.
         llamaResponse = await llama.forwardRequest({
@@ -291,7 +257,7 @@ app.all('/{*splat}', async (req, res) => {
 /* -------------------- STOP SERVER -------------------- */
 
 async function shutdown(signal: string) {
-    console.log(`shutting down llama-shim (${chalk.yellow(signal)})`);
+    console.log(`received shutdown signal: ${signal}`);
 
     await Promise.allSettled([
         // 1. Kill llama-server if it's running
@@ -314,7 +280,7 @@ async function shutdown(signal: string) {
         })
     ]);
 
-    console.log('... done!');
+    console.log('goodbye!');
 }
 
 // Listen to OS signals, shutdown llama if needed

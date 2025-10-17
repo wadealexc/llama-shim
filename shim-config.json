@@ -1,6 +1,6 @@
 {
-    "default": "gpt-oss-20b-mxfp4.gguf",
+    "defaultModelName": "gpt-oss-20b-mxfp4",
     "models": "./models",
     "logs": "./logs",
-    "sleepAfterXSeconds": 60
+    "sleepAfterXSeconds": 600
 }

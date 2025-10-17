@@ -27,10 +27,22 @@ const POLL_INTERVAL_MS = 500;
 // (total wait time ms: NUM_RETRIES * POLL_INTERVAL_MS -> 20 seconds)
 const NUM_RETRIES = 40;
 
+// How often to check `lastActiveMs` to trigger auto-sleep
+const SLEEP_MONITOR_INTERVAL_MS = 500;
+
 type ActiveProcess = {
     proc: ChildProcess,
-    currentModel: string,
+    currentModel: ModelInfo,
+    sleepTimer: {
+        reset: () => void,
+        clear: () => void,
+    },
     exited: Promise<void>,
+};
+
+type ModelInfo = {
+    name: string,
+    path: string,
 };
 
 export class LlamaManager {
@@ -38,62 +50,89 @@ export class LlamaManager {
     private llamaServerIP: string;
     private llamaServerPort: string;
     private llamaServerURL: string;
-    private sleepAfterXSeconds: number;
+    
+    private defaultModelName: string;
+    private models: Map<string, string>;
 
     private llama: ActiveProcess | null = null;
 
     private runCounter = 0;
     private activeRequests = 0;
     private restartInProgress: Promise<void> | null = null;
+    private sleepAfterMs: number;
 
     private logDirectory: string;
     private logFilePrefix: string;
 
     constructor(params: {
         llamaServerIP: string, llamaServerPort: number,
-        defaultModelPath: string,
         logDirectory: string, logFilePrefix: string,
         sleepAfterXSeconds: number,
+        modelFiles: string[], defaultModelName: string,
     }) {
         this.llamaServerIP = params.llamaServerIP;
         this.llamaServerPort = params.llamaServerPort.toString();
         this.llamaServerURL = `http://${params.llamaServerIP}:${params.llamaServerPort}`;
-        this.sleepAfterXSeconds = params.sleepAfterXSeconds;
+        
+        if (!params.modelFiles.find(model => utils.modelNameFromPath(model) === params.defaultModelName))
+            throw new Error(`did not find requested default model: ${params.defaultModelName}`);
+
+        // Map all models s.t. (key == modelName, value == modelFile)
+        this.defaultModelName = params.defaultModelName;
+        this.models = new Map(params.modelFiles.map((file) => [
+            utils.modelNameFromPath(file),
+            file
+        ]));
+
+        this.sleepAfterMs = params.sleepAfterXSeconds * 1000;
 
         this.logDirectory = params.logDirectory;
         this.logFilePrefix = params.logFilePrefix;
 
-        this.restartServer(params.defaultModelPath);
+        // Start llama-server with default model
+        this.ready(this.defaultModelName);
     }
 
     /* -------------------- PUBLIC METHODS -------------------- */
 
     /**
-     * Kill the existing llama-server process and start a new one, loading the GGUF
-     * model given by `modelPath`. This can take some time, as the old server
-     * needs to be shut down, and the new model needs to be loaded.
+     * Prepare a llama-server process using the requested model.
      * 
-     * This method will throw if we're already working on a restart, or if we have an
-     * active `forwardRequest`.
+     * If there's an existing process and it's using a different model, kill it first.
+     * This can take some time, because the old server needs to be shut down and the
+     * new model needs to be loaded.
      * 
-     * @param modelPath Path to the GGUF file to load into llama-server
+     * This method will throw if:
+     * - we have an active `forwardRequest` (TODO - have it wait?)
+     * - we're currently 
+     * - we don't have a GGUF corresponding to `modelName`
+     * 
+     * @param modelName The name of the model for which we should have a corresponding GGUF
      */
-    async restartServer(modelPath: string) {
-        if (this.restartInProgress) throw new Error(`LlamaManager.restartServer: attempted restart while restart in progress`);
-        if (this.activeRequests !== 0) throw new Error(`LlamaManager.restartServer: attempted restart while requests active`);
+    async ready(modelName: string) {
+        if (this.restartInProgress) await this.restartInProgress;
+        if (this.llama?.currentModel.name === modelName) return; // no work needed
 
-        // Create a promise for the restart process that resolves when restart is complete
+        // If we have any outstanding requests, throw (TODO - wait here)
+        if (this.activeRequests !== 0) throw new Error(`LlamaManager.ready: attempted restart while requests active`);
+
+        const model: ModelInfo = { name: modelName, path: this.models.get(modelName)! }
+        // We need to start a new llama-server process for the model, and maybe
+        // shut down an existing process. Create a promise that will be resolved
+        // when this is complete.
         this.runCounter++;
         this.restartInProgress = new Promise<void>(async (resolve) => {
             try {
                 await this.stopServer();
-                await this.#startServer(modelPath);
+                await this.#startServer(model);
                 await this.#pollServer();
             } finally {
                 this.restartInProgress = null;
                 resolve();
             }
         });
+
+        await this.restartInProgress;
     }
 
     /**
@@ -142,12 +181,12 @@ export class LlamaManager {
         }
 
         // if we don't get a shutdown, burn it all to the ground
-        throw new Error(`failed to kill llama-server (pid ${pid}) (model ${this.llama.currentModel})`);
+        throw new Error(`failed to kill llama-server (pid ${pid}) (model ${this.llama.currentModel.name})`);
     }
 
     /**
      * Immediately SIGKILL any llama-server process (or its children), if they exist
-     * Returns without checking to see if the process ended.
+     * Returns without cleanup/checking to see if the process ended.
      */
     forceStopServer() {
         if (!this.llama) return;
@@ -168,7 +207,7 @@ export class LlamaManager {
         if (this.restartInProgress) {
             console.log(`LlamaManager.forwardRequest: restart in progress, waiting...`);
             try { await this.restartInProgress }
-            catch (err) { console.error(`LlamaManager.forwardRequest: restart failed: ${err}, continuing with model: ${this.llama?.currentModel}`) }
+            catch (err) { console.error(`LlamaManager.forwardRequest: restart failed: ${err}, continuing with model: ${this.llama?.currentModel.name}`) }
         }
 
         if (!this.llama) throw new Error(`LlamaManager.forwardRequest: no llama process found!`);
@@ -177,6 +216,7 @@ export class LlamaManager {
         // Note: this does NOT prevent direct calls to `stopServer` or `forceStopServer`, as we don't want
         // to block shutdown.
         this.activeRequests++;
+        this.llama.sleepTimer.reset();
 
         try {
             const llamaURL = this.llamaServerURL + req.originalURL;
@@ -198,6 +238,8 @@ export class LlamaManager {
                 body: !(req.method === 'GET' || req.method === 'HEAD') ? req.body : undefined,
             };
 
+            // TODO - wrap with a promise that decrements activeRequests when it ends
+            // (currently the finally branch runs while the stream is still ongoing)
             return fetch(llamaURL, init);
         } finally {
             this.activeRequests--;
@@ -215,27 +257,25 @@ export class LlamaManager {
      * 
      * @param modelPath Path to the GGUF file to load into llama-server
      */
-    async #startServer(modelPath: string) {
+    async #startServer(model: ModelInfo) {
         if (this.llama) throw new Error(`LlamaManager.startServer: llama process already running`);
-
-        const modelName = utils.modelNameFromPath(modelPath);
 
         // Open log file for `llama-server` stdout/stderr
         // File name example: `llama-{timestamp}_r0_gpt-oss-20b.log`
         const logFileName =
             this.logFilePrefix +
             '_r' + this.runCounter.toString() +
-            '_' + modelName + '.log';
+            '_' + model.name + '.log';
         const logPath = path.join(this.logDirectory, logFileName);
 
         // Open log file for child process stdout/stderr
-        console.log(`\n[Run: ${this.runCounter}] starting llama-server with model: ${chalk.magenta(modelName)}`);
+        console.log(`\n[Run: ${this.runCounter}] starting llama-server with model: ${chalk.magenta(model.name)}`);
         console.log(chalk.dim(` - using log file: ${logPath}`));
         const out = fs.openSync(logPath, 'a');
         const err = fs.openSync(logPath, 'a');
 
         const args = [
-            '-m', modelPath,
+            '-m', model.path,
             '--host', this.llamaServerIP,
             '--port', this.llamaServerPort,
             '--ctx-size', '0',
@@ -262,12 +302,15 @@ export class LlamaManager {
             console.error('llama-server process error:', err);
         });
 
-        // Setting this.llama tells other methods that there is an active llama-server
-        // process. It also creates a promise that resolves and cleans up when
-        // llama.proc exits.
+        // Setting this.llama:
+        // - tells other methods there is an active llama-server process
+        // - creates a promise that resolves and cleans up when the process exits
+        // - starts a timer that will kill the process if it doesn't get activity
+        //   before `this.sleepAfterMs`
         this.llama = {
             proc: proc,
-            currentModel: modelName,
+            currentModel: model,
+            sleepTimer: this.#newSleepTimer(this.sleepAfterMs),
             // 'close' will only be emitted once the process exits AND all stdio streams
             // have been closed. 'exit' will be emitted once the process exits.
             //
@@ -278,6 +321,9 @@ export class LlamaManager {
                 // proc.once('close', () => resolve());
                 proc.once('exit', (code, signal) => {
                     console.log(`llama-server exited code=${code} signal=${signal}`);
+
+                    // clear auto-sleep timeout
+                    this.llama?.sleepTimer.clear();
 
                     // clean up log files
                     try { fs.closeSync(out) } catch { };
@@ -300,7 +346,7 @@ export class LlamaManager {
                 return;
             }
 
-            process.stdout.write(chalk.dim(` - loading model: ${chalk.magenta(this.llama.currentModel)}\n`));
+            process.stdout.write(chalk.dim(` - loading model: ${chalk.magenta(this.llama.currentModel.name)}\n`));
 
             let retriesLeft = NUM_RETRIES;
 
@@ -329,7 +375,12 @@ export class LlamaManager {
                     process.stdout.write(chalk.dim('.'));
 
                     if (success) {
-                        process.stdout.write(`${chalk.dim.green(`model loaded!`)} ${chalk.magenta(this.llama.currentModel)} listening on port ${chalk.cyan(this.llamaServerPort)}\n`);
+                        process.stdout.write(
+                            `${chalk.dim.green(`model loaded!`)} ${chalk.magenta(this.llama.currentModel.name)} ` +
+                            `is listening on port ${chalk.cyan(this.llamaServerPort)} ` +
+                            `(pid ${this.llama.proc.pid}) ` +
+                            '\n'
+                        );
                         resolve();
                         return;
                     }
@@ -340,5 +391,59 @@ export class LlamaManager {
                 retriesLeft--;
             }
         });
+    }
+
+    #newSleepTimer(delayMs: number): { 
+        reset: () => void,
+        clear: () => void,
+    } {
+        let timer: NodeJS.Timeout | null = null;
+        
+        const start = () => {
+            timer = setTimeout(async () => {
+                await this.#sleep();
+            }, delayMs); // NOTE: add unref() ?
+        };
+
+        start();
+        return {
+            reset: () => {
+                if (timer !== null) clearTimeout(timer);
+                start();
+            },
+            clear: () => {
+                if (timer !== null) clearTimeout(timer);
+                timer = null;
+            },
+        }
+    }
+
+    async #sleep() {
+        // We should be cleaning up properly when our active process exits
+        if (!this.llama) {
+            console.error(`sleep timer elapsed, but no active process exists!`);
+            return;
+        }
+
+        // No need to stop server if we're actually doing things
+        if (this.restartInProgress) {
+            console.log(`sleep timer elapsed, but llama seems busy; skipping (restart)`);
+            return;
+        } else if (this.activeRequests !== 0) {
+            console.log(`sleep timer elapsed, but llama seems busy; skipping (${this.activeRequests} active requests)`)
+            return;
+        }
+
+        // If you can't handle my logging code at its worst, you don't deserve
+        // my logging output at its best
+        let seconds = Math.floor(this.sleepAfterMs / 1000);
+        const minutes = Math.floor(seconds / 60);
+        if (minutes !== 0) seconds = seconds % 60;
+
+        const minutesStr = minutes > 0 ? ` ${minutes} min` : '';
+        const secondsStr = seconds > 0 ? ` ${seconds} sec` : '';
+
+        console.log(`no activity after${minutesStr}${secondsStr}; going to sleep...`);
+        await this.stopServer();
     }
 }

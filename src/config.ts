@@ -11,7 +11,7 @@ export function readConfig(path: string): Config {
     const cfgJSON = JSON.parse(fs.readFileSync(path, 'utf-8'));
 
     return {
-        DEFAULT_MODEL: cfgJSON['default'],
+        DEFAULT_MODEL: cfgJSON['defaultModelName'],
         MODEL_FILES_PATH: cfgJSON['models'],
         LOG_DIR: cfgJSON['logs'],
         SLEEP_AFTER_X_SECONDS: cfgJSON['sleepAfterXSeconds'],
