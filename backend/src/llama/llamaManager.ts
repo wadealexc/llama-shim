@@ -25,8 +25,8 @@ const POLL_TIMEOUT_MS = 100;
 const POLL_INTERVAL_MS = 100;
 
 // Number of times to ping `llama-server` process before giving up on life
-// (total wait time: NUM_RETRIES * POLL_INTERVAL_MS = 20 seconds)
-const NUM_RETRIES = 200;
+// (total wait time: NUM_RETRIES * POLL_INTERVAL_MS = 80 seconds)
+const NUM_RETRIES = 800;
 
 // How often the main dispatch loop ticks
 const LOOP_INTERVAL_MS = 100;
@@ -839,8 +839,8 @@ export class LlamaManager {
             const used = parts[0], total = parts[1];
             if (used === undefined || total === undefined) return null;
             return { used, total };
-        } catch {
-            // nvidia-smi unavailable - skip silently
+        } catch (err: any) {
+            console.error(`error fetching VRAM: ${err}`);
             return null;
         }
     }

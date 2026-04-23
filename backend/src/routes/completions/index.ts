@@ -1,7 +1,7 @@
 import { Router, type Response, type NextFunction } from 'express';
 import chalk from 'chalk';
 
-import { LlamaManager } from '../../llama/llamaManager.js';
+import { LlamaManager, type LlamaResponse } from '../../llama/llamaManager.js';
 import * as Types from '../types/index.js';
 import { requireAuth } from '../middleware.js';
 import * as proto from '../../protocol/index.js';
@@ -243,6 +243,59 @@ router.post('/custom-completions', requireAuth, async (
     }
 
     logCompletion(ctx.resolvedModel, roundLogs);
+});
+
+/* -------------------- OAI COMPLETION -------------------- */
+
+/**
+ * POST /api/v1/chat/completions
+ * Access Control: None (unauthenticated)
+ *
+ * OpenAI-compatible chat completions endpoint. Thin wrapper around llamaManager.completions()
+ * that proxies requests and streams responses back to the caller without any DB persistence,
+ * tool execution, or frontend-specific SSE events.
+ */
+router.post('/completions', async (
+    req: Types.TypedRequest<{}, proto.CompletionRequest>,
+    res: Response,
+    next: NextFunction,
+) => {
+    const llama = req.app.locals.llama as LlamaManager;
+
+    const body: proto.CompletionRequest = req.body;
+    if (!body.model || !body.messages) {
+        return res.status(400).json({ detail: 'Missing required fields: model, messages' });
+    }
+
+    const ctrl = new AbortController();
+    res.once('close', () => ctrl.abort());
+
+    let llamaResponse: LlamaResponse;
+    try {
+        llamaResponse = await llama.completions({ body, signal: ctrl.signal });
+    } catch (err: any) {
+        return res.status(500).json({ detail: err?.message ?? String(err) });
+    }
+
+    const { stream } = llamaResponse;
+
+    if (body.stream) {
+        res.setHeader('Content-Type', 'text/event-stream');
+        res.setHeader('Cache-Control', 'no-cache');
+        res.setHeader('Connection', 'keep-alive');
+        res.status(200);
+        res.flushHeaders();
+        stream.pipe(res);
+        await stream.finished();
+    } else {
+        const result = await stream.finished();
+        if (!result.ok) {
+            return res.status(500).json({ detail: result.value.message });
+        }
+
+        const { timings: _timings, ...response } = result.value;
+        return res.status(200).json(response);
+    }
 });
 
 export type PersistData = {
