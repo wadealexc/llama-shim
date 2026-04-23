@@ -12,6 +12,11 @@ RUN npm ci
 # Copy source (will be overridden by bind mount in compose)
 COPY . .
 
+# Change ownership to node user for runtime
+RUN chown -R node:node /app
+
+USER node
+
 EXPOSE 5050
 
 CMD ["npm", "run", "dev"]

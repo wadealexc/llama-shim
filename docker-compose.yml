@@ -10,7 +10,7 @@ services:
       - BACKEND_URL=http://192.168.87.30:8071
       - BACKEND_SRC=/backend-src
       - ENV=dev
+      - GIT_DISCOVERY_ACROSS_FILESYSTEM=1
     volumes:
       - ./frontend:/app
-      - /app/node_modules
       - ./backend/src:/backend-src:ro
