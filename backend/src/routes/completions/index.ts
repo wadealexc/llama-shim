@@ -55,6 +55,8 @@ router.post('/custom-completions', requireAuth, async (
     res: Response<any | Types.ErrorResponse>,
     next: NextFunction,
 ) => {
+    console.log(`custom-completions: received request`);
+
     const llama = req.app.locals.llama as LlamaManager;
     const toolRegistry = req.app.locals.tools as ToolRegistry;
 

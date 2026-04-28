@@ -700,8 +700,10 @@
         );
 
         try {
+            generationController = new AbortController();
+
             // 2. API call
-            const [textStream, controller] = await chatCompletion(localStorage.token, {
+            const textStream = await chatCompletion(localStorage.token, generationController, {
                 stream: stream,
                 chatId: $chatId,
                 chat: {
@@ -719,7 +721,6 @@
             });
 
             // 3. Stream state setup
-            generationController = controller;
             generating = true;
             autoScroll = true;
             const contextTotal = model.contextLength ?? 0;

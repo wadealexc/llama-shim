@@ -45,11 +45,11 @@ type TextStreamUpdate = {
 
 export const chatCompletion = async (
     token: string,
-    body: ChatCompletionForm
-): Promise<[AsyncGenerator<TextStreamUpdate>, AbortController]> => {
-    const controller = new AbortController();
-    const route = '/chat/custom-completions';
+    controller: AbortController,
+    body: ChatCompletionForm,
+): Promise<AsyncGenerator<TextStreamUpdate>> => {
 
+    const route = '/chat/custom-completions';
     const res = await fetch(`${API_BASE_URL}${route}`, {
         signal: controller.signal,
         method: 'POST',
@@ -70,7 +70,7 @@ export const chatCompletion = async (
     }
 
     const stream = createSSEStream(res.body);
-    return [stream, controller];
+    return stream;
 };
 
 /* -------------------- STREAMING -------------------- */
