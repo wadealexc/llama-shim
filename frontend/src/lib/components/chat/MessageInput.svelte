@@ -24,6 +24,8 @@
     import Tooltip from '../common/Tooltip.svelte';
     import FileItem from './Messages/FileItem.svelte';
     import Image from '../common/Image.svelte';
+    import TypingIndicator from './MessageInput/TypingIndicator.svelte';
+    import ChevronDown from '../icons/ChevronDown.svelte';
 
     import GlobeAlt from '../icons/GlobeAlt.svelte';
     import AdjustmentsHorizontal from '../icons/AdjustmentsHorizontal.svelte';
@@ -327,26 +329,27 @@
             <div class="relative">
                 {#if showScrollButton}
                     <div
-                        class=" absolute -top-12 left-0 right-0 flex justify-center z-30 pointer-events-none"
+                        class=" absolute -top-8 left-0 right-0 flex justify-center z-30 pointer-events-none"
                     >
-                        <button
-                            class="bg-gray-50 dark:bg-gray-800 border border-white/50 p-1.5 rounded-full pointer-events-auto"
-                            aria-label="scroll"
-                            on:click={onScrollToBottomClick}
-                        >
-                            <svg
-                                xmlns="http://www.w3.org/2000/svg"
-                                viewBox="0 0 20 20"
-                                fill="currentColor"
-                                class="w-5 h-5"
+                        {#if generating}
+                            <!-- Typing indicator (clickable - scrolls to bottom) -->
+                            <button
+                                class="bg-gray-50 dark:bg-gray-800 border border-white/50 px-3 py-1.75 rounded-full pointer-events-auto"
+                                aria-label="scroll to bottom"
+                                on:click={onScrollToBottomClick}
                             >
-                                <path
-                                    fill-rule="evenodd"
-                                    d="M10 3a.75.75 0 01.75.75v10.638l3.96-4.158a.75.75 0 111.08 1.04l-5.25 5.5a.75.75 0 01-1.08 0l-5.25-5.5a.75.75 0 111.08-1.04l3.96 4.158V3.75A.75.75 0 0110 3z"
-                                    clip-rule="evenodd"
-                                />
-                            </svg>
-                        </button>
+                                <TypingIndicator />
+                            </button>
+                        {:else}
+                            <!-- Scroll-to-bottom button -->
+                            <button
+                                class="bg-gray-50 dark:bg-gray-800 border border-white/50 px-4 py-0.25 rounded-full pointer-events-auto"
+                                aria-label="scroll to bottom"
+                                on:click={onScrollToBottomClick}
+                            >
+                                <ChevronDown className="w-4 h-4" strokeWidth="2" />
+                            </button>
+                        {/if}
                     </div>
                 {/if}
             </div>
