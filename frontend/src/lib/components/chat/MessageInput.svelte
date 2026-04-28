@@ -330,7 +330,7 @@
                         class=" absolute -top-12 left-0 right-0 flex justify-center z-30 pointer-events-none"
                     >
                         <button
-                            class=" bg-white border border-gray-100 dark:border-none dark:bg-white/20 p-1.5 rounded-full pointer-events-auto"
+                            class="bg-gray-50 dark:bg-gray-800 border border-white/50 p-1.5 rounded-full pointer-events-auto"
                             aria-label="scroll"
                             on:click={onScrollToBottomClick}
                         >

@@ -81,25 +81,25 @@
     let messageInput: MessageInput | undefined;
 
     let messagesContainerElement: HTMLDivElement;
-    let autoScroll: boolean = true;
-    /// An observer attached to the messages container to dispatch scrollToBottom
-    /// calls as stream input is rendered.
-    ///
-    /// scrollObserver uses scrollPending to deduplicate scrollToBottom calls
-    let scrollObserver: MutationObserver | null = null;
-    let scrollPending: boolean = false;
-    /// Set to true when we're programmatically scrolling. Used to check if a scroll
-    /// event came from the user.
-    let programmaticScroll: boolean = false;
-
-    let webSearchEnabled: boolean = false;
+    
     let systemPromptVisible: boolean = false;
     let showSystemPromptSaveModal: boolean = false;
     let pendingSystemPromptEdit: string = '';
     // System prompt staged for a new chat that doesn't exist in DB yet
     let pendingChatSystemPrompt: string = '';
-    let savedScrollState: { scrollTop: number; autoScroll: boolean } | null = null;
+    /// Saved scroll position for system prompt toggle restoration
+    let savedScrollState: number | undefined = undefined;
     let prevSystemPromptVisible: boolean = false;
+    /// Track whether we're at the bottom of the messages container
+    let isAtBottom: boolean = true;
+
+    const SCROLL_THRESHOLD = 200; // pixels from bottom
+
+    const hasScrollableContent = (): boolean => {
+        if (!messagesContainerElement) return false;
+        const distanceFromBottom = messagesContainerElement.scrollHeight - messagesContainerElement.scrollTop - messagesContainerElement.clientHeight;
+        return distanceFromBottom > SCROLL_THRESHOLD;
+    };
 
     let generating: boolean = false;
     let generationController: AbortController | null = null;
@@ -121,6 +121,7 @@
     let files: ChatMessageFile[] = [];
 
     let lastSelectedModelId: string | undefined;
+    let webSearchEnabled: boolean = false;
 
     function triggerWake(model: Model): void {
         if (model.id !== lastSelectedModelId) {
@@ -138,10 +139,6 @@
 
     $: if (chatIdProp) {
         navigateHandler();
-    }
-
-    $: if (autoScroll && files.length > 0 && messagesContainerElement) {
-        scrollToBottom();
     }
 
     /**
@@ -241,7 +238,7 @@
     // When the virtual keyboard opens/closes, re-scroll the messages container
     // to the bottom so the last message stays visible after the layout shrinks.
     const onViewportResize = () => {
-        if (autoScroll) scrollToBottom();
+        scrollToBottom();
     };
 
     onMount(async () => {
@@ -297,7 +294,6 @@
     });
 
     onDestroy(() => {
-        scrollObserver?.disconnect();
         window.visualViewport?.removeEventListener('resize', onViewportResize);
         try {
             pageUnsubscribe();
@@ -346,8 +342,6 @@
         chatId.set('');
         chatTitle.set('');
 
-        autoScroll = true;
-
         history = {
             messages: {},
             currentId: null
@@ -391,7 +385,6 @@
             selectedFolder.set(null);
         }
 
-        autoScroll = true;
         webSearchEnabled = chatContent.webSearchEnabled ?? $settings.webSearch;
 
         history = chatContent.history;
@@ -414,80 +407,42 @@
     const scrollToBottom = async () => {
         await tick();
         if (!messagesContainerElement) return;
-        programmaticScroll = true;
         messagesContainerElement.scrollTo({
             top: messagesContainerElement.scrollHeight,
             behavior: 'auto'
         });
-        // Double-rAF ensures programmaticScroll clears after the scroll event fires.
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                programmaticScroll = false;
-            });
-        });
     };
 
     const scrollToTop = async () => {
-        autoScroll = false; // set before tick so MutationObserver won't fire scrollToBottom during DOM update
         await tick();
         if (!messagesContainerElement) return;
-        programmaticScroll = true;
         messagesContainerElement.scrollTo({ top: 0, behavior: 'auto' });
-        requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-                programmaticScroll = false;
-            });
-        });
     };
 
     $: {
         if (systemPromptVisible && !prevSystemPromptVisible) {
-            // toggle ON - save current scroll state, scroll to top
+            // toggle ON - save scroll position BEFORE DOM updates
             if (messagesContainerElement) {
-                savedScrollState = { scrollTop: messagesContainerElement.scrollTop, autoScroll };
+                savedScrollState = messagesContainerElement.scrollTop;
             }
+            // DOM will update systemPromptVisible, then we scroll to top
             scrollToTop();
         } else if (!systemPromptVisible && prevSystemPromptVisible) {
-            // toggle OFF - restore saved scroll state
-            if (savedScrollState) {
-                autoScroll = savedScrollState.autoScroll;
-                if (autoScroll) {
-                    scrollToBottom();
-                } else if (messagesContainerElement) {
-                    programmaticScroll = true;
-                    messagesContainerElement.scrollTo({
-                        top: savedScrollState.scrollTop,
-                        behavior: 'auto'
-                    });
-                    requestAnimationFrame(() => {
-                        requestAnimationFrame(() => {
-                            programmaticScroll = false;
+            // toggle OFF - wait for DOM to settle, then restore
+            if (savedScrollState !== undefined) {
+                tick().then(() => {
+                    if (messagesContainerElement) {
+                        messagesContainerElement.scrollTo({
+                            top: savedScrollState,
+                            behavior: 'auto'
                         });
-                    });
-                }
-                savedScrollState = null;
+                    }
+                    // Reset AFTER restore completes
+                    savedScrollState = undefined;
+                });
             }
         }
         prevSystemPromptVisible = systemPromptVisible;
-    }
-
-    // Watch for DOM changes inside the scroll container (new tokens, markdown
-    // re-renders, etc.) and scroll to bottom while autoScroll is active.
-    $: if (messagesContainerElement) {
-        scrollObserver?.disconnect();
-        scrollObserver = new MutationObserver(() => {
-            if (autoScroll && !scrollPending) {
-                scrollPending = true;
-                scrollToBottom().then(() => {
-                    scrollPending = false;
-                });
-            }
-        });
-        scrollObserver.observe(messagesContainerElement, {
-            childList: true,
-            subtree: true,
-            characterData: true
-        });
     }
 
     //////////////////////////
@@ -636,8 +591,8 @@
     };
 
     const sendMessage = async (userMessage: ChatMessage) => {
-        if (autoScroll) scrollToBottom();
-
+        scrollToBottom();
+        
         const model = $selectedModel;
         if (!model) {
             toast.error(`Model not found`);
@@ -722,7 +677,6 @@
 
             // 3. Stream state setup
             generating = true;
-            autoScroll = true;
             const contextTotal = model.contextLength ?? 0;
             streamContext.set(null);
             toolProgress = new Map<string, WebSearchProgress | LoadWebpageProgress>();
@@ -754,6 +708,8 @@
                     syncAnimationFrame = requestAnimationFrame(() => {
                         syncAnimationFrame = null;
                         history = history;
+                        // Update scroll state after DOM updates
+                        isAtBottom = !hasScrollableContent();
                     });
                 }
             };
@@ -1168,10 +1124,7 @@
                         id="messages-container"
                         bind:this={messagesContainerElement}
                         on:scroll={() => {
-                            if (programmaticScroll) return;
-                            const el = messagesContainerElement;
-                            const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 10;
-                            autoScroll = atBottom;
+                            isAtBottom = !hasScrollableContent();
                         }}
                     >
                         <div class=" h-full w-full flex flex-col pt-2">
@@ -1332,9 +1285,9 @@
                             {history}
                             bind:files
                             bind:prompt
-                            showScrollButton={!autoScroll && (hasMessages || systemPromptVisible)}
+                            showScrollButton={!isAtBottom && (hasMessages || systemPromptVisible)}
                             onScrollToBottomClick={() => {
-                                autoScroll = true;
+                                isAtBottom = true;
                                 scrollToBottom();
                             }}
                             bind:webSearchEnabled
