@@ -314,7 +314,7 @@ describe('POST /custom-completions', () => {
         assert.ok(toolResult, 'Expected tool_call:result event');
         const resultData = (toolResult.event.data as any).data;
         assert.ok(
-            (resultData.result as string).startsWith('Error:'),
+            (resultData.result as string).startsWith('Unknown tool:'),
             `Expected error result, got: ${resultData.result}`,
         );
 

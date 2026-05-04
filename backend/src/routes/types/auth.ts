@@ -1,5 +1,4 @@
 import { z } from 'zod';
-import parse, { type StringValue } from 'ms';
 
 import { UserIdSchema, UserRoleSchema } from './common.js';
 
@@ -54,31 +53,3 @@ export const UpdatePasswordFormSchema = z.object({
     newPassword: z.string(),
 });
 export type UpdatePasswordForm = z.infer<typeof UpdatePasswordFormSchema>;
-
-// Admin config
-const MsStringValueSchema = z.custom<StringValue>((v) => {
-    if (v === '-1') return true;
-
-    try {
-        const n = parse(v as StringValue);
-        return typeof n === "number" && Number.isFinite(n);
-    } catch {
-        return false;
-    }
-}, {
-    message: 'Must be a valid ms time string (e.g. "1d", "2h", "30m", "2 days", "1 mo")',
-});
-
-export const AdminConfigSchema = z.object({
-    APP_URL: z.string(),
-    ENABLE_SIGNUP: z.boolean(),
-    DEFAULT_USER_ROLE: z.enum(['pending', 'user', 'admin']),
-    JWT_EXPIRES_IN: MsStringValueSchema,
-});
-export type AdminConfig = z.infer<typeof AdminConfigSchema>;
-
-// Import config form (for POST /api/v1/configs/import)
-export const ImportConfigFormSchema = z.object({
-    config: z.record(z.string(), z.any()),
-});
-export type ImportConfigForm = z.infer<typeof ImportConfigFormSchema>;

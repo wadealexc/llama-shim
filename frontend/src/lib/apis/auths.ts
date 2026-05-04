@@ -2,47 +2,9 @@ import { API_BASE_URL } from '$lib/constants';
 import type {
     SessionUserResponse,
     SignoutResponse,
-    AdminConfig,
     UpdateProfileResponse,
     UpdateProfileForm
 } from '@backend/routes/types';
-
-export const getAdminConfig = async (token: string): Promise<AdminConfig> => {
-    const route = '/auths/admin/config';
-    const res = await fetch(`${API_BASE_URL}${route}`, {
-        method: 'GET',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-        }
-    });
-
-    if (!res.ok) {
-        const err = await res.json();
-        throw err.detail ?? `Request failed: ${route}`;
-    }
-
-    return await res.json();
-};
-
-export const updateAdminConfig = async (token: string, body: AdminConfig): Promise<AdminConfig> => {
-    const route = '/auths/admin/config';
-    const res = await fetch(`${API_BASE_URL}${route}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify(body)
-    });
-
-    if (!res.ok) {
-        const err = await res.json();
-        throw err.detail ?? `Request failed: ${route}`;
-    }
-
-    return await res.json();
-};
 
 export const getSessionUser = async (token: string): Promise<SessionUserResponse> => {
     const route = '/auths/';

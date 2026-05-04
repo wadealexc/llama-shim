@@ -22,7 +22,7 @@
     import '../app.css';
     import 'tippy.js/dist/tippy.css';
 
-    import { getBackendConfig } from '$lib/apis/configs';
+    import { getConfig } from '$lib/apis/configs';
     import { getSessionUser, userSignOut } from '$lib/apis/auths';
 
     import { setTextScale } from '$lib/utils/text-scale';
@@ -93,18 +93,18 @@
             }
         });
 
-        let backendConfig;
+        let configData;
         try {
-            backendConfig = await getBackendConfig();
+            configData = await getConfig();
         } catch (error) {
             console.error('Error loading backend config:', error);
             await goto('/auth');
             return;
         }
 
-        config.set(backendConfig);
+        config.set(configData);
         configLoaded.set(true);
-        APP_NAME.set(backendConfig.name);
+        APP_NAME.set(configData.name);
 
         const currentUrl = `${window.location.pathname}${window.location.search}`;
         const encodedUrl = encodeURIComponent(currentUrl);

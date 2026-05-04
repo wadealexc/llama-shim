@@ -33,18 +33,16 @@ export const selectedModel: Writable<Model | null> = writable(null);
 
 export type Config = {
     name: string;
-    features: {
-        auth: boolean;
-        enableSignup: boolean;
-    };
+    enableSignup: boolean;
+    defaultUserRole: string;
+    jwtExpiresIn: string;
 };
 
 const DEFAULT_CONFIG: Config = {
     name: 'kitsu',
-    features: {
-        auth: true,
-        enableSignup: true
-    }
+    enableSignup: true,
+    defaultUserRole: 'user',
+    jwtExpiresIn: '7d',
 };
 
 export type Settings = {

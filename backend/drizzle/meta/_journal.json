@@ -36,6 +36,13 @@
       "when": 1774023833828,
       "tag": "0004_friendly_anita_blake",
       "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "6",
+      "when": 1777920210476,
+      "tag": "0005_lethal_whiplash",
+      "breakpoints": true
     }
   ]
 }

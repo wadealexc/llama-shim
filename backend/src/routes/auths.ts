@@ -3,20 +3,11 @@ import type { StringValue } from 'ms';
 
 import * as Types from './types/index.js';
 import { requireAuth, requireAdmin } from './middleware.js';
-import { db, Users, Auths, DEFAULT_USER_ROLE, type User } from '../db/index.js';
+import { db, Users, Auths, Configs, type User } from '../db/index.js';
 import * as JWT from './jwt.js';
 import { HttpError, BadRequestError, NotFoundError } from './errors.js';
 
 const router = Router();
-
-/* -------------------- MODULE-LEVEL CONFIG -------------------- */
-
-let adminConfig: Types.AdminConfig = {
-    APP_URL: 'http://192.168.87.30:5050',
-    ENABLE_SIGNUP: true,
-    DEFAULT_USER_ROLE: DEFAULT_USER_ROLE,
-    JWT_EXPIRES_IN: '7d',
-};
 
 /* -------------------- PUBLIC ENDPOINTS -------------------- */
 
@@ -53,7 +44,7 @@ router.post('/signin', async (
         const { user } = result;
 
         // Generate JWT token
-        const expiresIn = getJWTExpiration();
+        const expiresIn = await getJWTExpiration();
         const token = JWT.createToken(user.id, expiresIn);
         const expiresAt = JWT.getTokenExpiration(token);
 
@@ -117,7 +108,7 @@ router.post('/signup', async (
         });
 
         // Generate token
-        const expiresIn = getJWTExpiration();
+        const expiresIn = await getJWTExpiration();
         const token = JWT.createToken(user.id, expiresIn);
         const expiresAt = JWT.getTokenExpiration(token);
 
@@ -282,49 +273,6 @@ router.post('/update/password', requireAuth, async (
     }
 });
 
-/* -------------------- ADMIN ENDPOINTS -------------------- */
-
-/**
- * GET /api/v1/auths/admin/config
- * Access Control: Requires HTTPBearer authentication and admin role
- *
- * Admin Only: Get the current admin/auth configuration settings.
- *
- * @returns {Types.AdminConfig} - configuration fields controlling authentication, signup, and features
- */
-router.get('/admin/config', requireAdmin, (
-    req: Request,
-    res: Response<Types.AdminConfig | Types.ErrorResponse>
-) => {
-    return res.json(adminConfig);
-});
-
-/**
- * POST /api/v1/auths/admin/config
- * Access Control: Requires HTTPBearer authentication and admin role
- *
- * Admin Only: Update the admin/auth configuration settings.
- *
- * @param {Types.AdminConfig} - all configuration fields
- * @returns {Types.AdminConfig} - echoes back the updated configuration
- */
-router.post('/admin/config', requireAdmin, (
-    req: Types.TypedRequest<{}, Types.AdminConfig>,
-    res: Response<Types.AdminConfig | Types.ErrorResponse>
-) => {
-    const body = Types.AdminConfigSchema.safeParse(req.body);
-    if (!body.success) {
-        return res.status(400).json({
-            detail: 'Invalid request body',
-            errors: body.error.issues
-        });
-    }
-
-    // Update in-memory config
-    adminConfig = { ...adminConfig, ...body.data };
-    return res.json(adminConfig);
-});
-
 /* -------------------- HELPER FUNCTIONS -------------------- */
 
 /**
@@ -347,10 +295,11 @@ function toSessionUserResponse(
 }
 
 /**
- * Get JWT expiration duration from admin config
+ * Get JWT expiration duration from config table
  */
-function getJWTExpiration(): StringValue {
-    return adminConfig.JWT_EXPIRES_IN;
+async function getJWTExpiration(): Promise<StringValue> {
+    const config = await Configs.getConfig(db);
+    return config.jwtExpiresIn;
 }
 
 /* -------------------- EXPORT -------------------- */

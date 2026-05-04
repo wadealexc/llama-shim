@@ -1,80 +1,70 @@
 /**
  * Configuration Routes
  *
- * Handles system-wide configuration management (import/export).
+ * Handles system-wide configuration management.
  */
 
 import { Router, type Request, type Response } from 'express';
 import * as Types from './types/index.js';
 import { requireAdmin } from './middleware.js';
+import { db, Configs } from '../db/index.js';
 
 const router = Router();
 
-// Backend config endpoint (temporary inline implementation)
-router.get('/', (
+/* -------------------- HELPERS -------------------- */
+
+function toConfigResponse(config: Configs.Config): Types.ConfigResponse {
+    return {
+        name: config.name,
+        enableSignup: config.enableSignup,
+        defaultUserRole: config.defaultUserRole,
+        jwtExpiresIn: config.jwtExpiresIn,
+    };
+}
+
+/* -------------------- PUBLIC ENDPOINTS -------------------- */
+
+/**
+ * GET /api/v1/configs/
+ * Access Control: Public (no authentication required)
+ *
+ * Returns the current system configuration.
+ *
+ * @returns {Types.ConfigResponse} - flat config object with name, enableSignup, defaultUserRole, jwtExpiresIn
+ */
+router.get('/', async (
     _req: Request,
-    res: Response<any | Types.ErrorResponse>
+    res: Response<Types.ConfigResponse | Types.ErrorResponse>
 ) => {
-    res.json({
-        name: 'kitsu',
-        default_locale: 'en-US',
-        features: {
-            auth: true,
-            enableSignup: true,
-        },
-    });
+    const config = await Configs.getConfig(db);
+    return res.json(toConfigResponse(config));
 });
 
 /* -------------------- ADMIN ENDPOINTS -------------------- */
 
 /**
- * GET /api/v1/configs/export
+ * POST /api/v1/configs/
  * Access Control: Requires HTTPBearer authentication and admin role
  *
- * Export the entire system configuration as a JSON object.
- * Used for backup or migration to another instance.
+ * Update the system configuration.
  *
- * @returns {object} - system configuration object
+ * @param {Types.ConfigUpdateForm} - partial config object with fields to update
+ * @returns {Types.ConfigResponse} - full config object after update
  */
-router.get('/export', requireAdmin, (
-    req: Request,
-    res: Response<Record<string, any> | Types.ErrorResponse>
+router.post('/', requireAdmin, async (
+    req: Types.TypedRequest<{}, Types.ConfigUpdateForm>,
+    res: Response<Types.ConfigResponse | Types.ErrorResponse>
 ) => {
-    res.status(200).json({
-        version: 1,
-        ui: {
-            theme: 'dark',
-            language: 'en',
-        },
-        features: {
-            enableSignup: true,
-            enableApiKeys: false,
-        },
-    });
-});
-
-/**
- * POST /api/v1/configs/import
- * Access Control: Requires HTTPBearer authentication and admin role
- *
- * Import a system configuration JSON object. Replaces the current configuration.
- * Used for restoring from backup or migrating from another instance.
- *
- * @param {Types.ImportConfigForm} - config object to import
- * @returns {object} - the imported configuration
- */
-router.post('/import', requireAdmin, (
-    req: Types.TypedRequest<{}, Types.ImportConfigForm>,
-    res: Response<Record<string, any> | Types.ErrorResponse>
-) => {
-    const body = Types.ImportConfigFormSchema.safeParse(req.body);
+    const body = Types.ConfigUpdateFormSchema.safeParse(req.body);
     if (!body.success) {
-        return res.status(400).json({ detail: 'Invalid request body', errors: body.error.issues });
+        return res.status(400).json({
+            detail: 'Invalid request body',
+            errors: body.error.issues
+        });
     }
 
-    // TODO: Update system config in database
-    // For now, just echo back the imported config
-    res.status(200).json(body.data.config);
+    const updated = await Configs.updateConfig(body.data, db);
+    return res.json(toConfigResponse(updated));
 });
 
 /* -------------------- EXPORT -------------------- */

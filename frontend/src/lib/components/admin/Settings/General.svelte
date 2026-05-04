@@ -1,18 +1,24 @@
 <script lang="ts">
-    import { getAdminConfig, updateAdminConfig } from '$lib/apis/auths';
+    import { getConfig, updateConfig } from '$lib/apis/configs';
     import Switch from '$lib/components/common/Switch.svelte';
     import { onMount } from 'svelte';
     import { toast } from 'svelte-sonner';
-    import type { AdminConfig } from '@backend/routes/types';
+    import type { ConfigResponse, ConfigUpdateForm } from '@backend/routes/types';
 
     export let saveHandler: Function;
 
-    let adminConfig: AdminConfig | null = null;
+    let config: ConfigResponse | null = null;
 
     const updateHandler = async () => {
-        if (!adminConfig) return;
+        if (!config) return;
 
-        const res = await updateAdminConfig(localStorage.token, adminConfig);
+        const body: ConfigUpdateForm = {
+            enableSignup: config.enableSignup,
+            defaultUserRole: config.defaultUserRole,
+            jwtExpiresIn: config.jwtExpiresIn,
+        };
+
+        const res = await updateConfig(localStorage.token, body);
         if (res) {
             saveHandler();
         } else {
@@ -21,7 +27,7 @@
     };
 
     onMount(async () => {
-        adminConfig = await getAdminConfig(localStorage.token);
+        config = await getConfig();
     });
 </script>
 
@@ -32,7 +38,7 @@
     }}
 >
     <div class="space-y-3 overflow-y-scroll scrollbar-hidden h-full">
-        {#if adminConfig !== null}
+        {#if config !== null}
             <div class="">
                 <div class="mb-3">
                     <div class=" mt-0.5 mb-2.5 text-base font-medium">{'Authentication'}</div>
@@ -44,7 +50,7 @@
                         <div class="flex items-center relative">
                             <select
                                 class="dark:bg-gray-900 w-fit pr-8 rounded-sm px-2 text-xs bg-transparent outline-hidden text-right"
-                                bind:value={adminConfig.DEFAULT_USER_ROLE}
+                                bind:value={config.defaultUserRole}
                                 placeholder="Select a role"
                             >
                                 <option value="pending">{'pending'}</option>
@@ -57,7 +63,7 @@
                     <div class=" mb-2.5 flex w-full justify-between pr-2">
                         <div class=" self-center text-xs font-medium">{'Enable New Sign Ups'}</div>
 
-                        <Switch bind:state={adminConfig.ENABLE_SIGNUP} />
+                        <Switch bind:state={config.enableSignup} />
                     </div>
 
                     <div class=" mb-2.5 w-full justify-between">
@@ -70,7 +76,7 @@
                                 class="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
                                 type="text"
                                 placeholder={`e.g.) "30m","1h", "10d". `}
-                                bind:value={adminConfig.JWT_EXPIRES_IN}
+                                bind:value={config.jwtExpiresIn}
                             />
                         </div>
 
@@ -81,7 +87,7 @@
                             >
                         </div>
 
-                        {#if adminConfig.JWT_EXPIRES_IN === '-1'}
+                        {#if config.jwtExpiresIn === '-1'}
                             <div class="mt-2 text-xs">
                                 <div
                                     class=" bg-yellow-500/20 text-yellow-700 dark:text-yellow-200 rounded-lg px-3 py-2"
@@ -94,25 +100,6 @@
                                 </div>
                             </div>
                         {/if}
-                    </div>
-
-                    <div class="mb-2.5 w-full justify-between">
-                        <div class="flex w-full justify-between">
-                            <div class=" self-center text-xs font-medium">{'App URL'}</div>
-                        </div>
-
-                        <div class="flex mt-2 space-x-2">
-                            <input
-                                class="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
-                                type="text"
-                                placeholder={`e.g.) "http://localhost:3000"`}
-                                bind:value={adminConfig.APP_URL}
-                            />
-                        </div>
-
-                        <div class="mt-2 text-xs text-gray-400 dark:text-gray-500">
-                            {'Enter the public URL of your app. This URL will be used to generate links in the notifications.'}
-                        </div>
                     </div>
                 </div>
             </div>

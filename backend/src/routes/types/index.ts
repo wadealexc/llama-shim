@@ -1,6 +1,7 @@
 // Domain schemas and types
 export * from './common.js';
 export * from './auth.js';
+export * from './config.js';
 export * from './users.js';
 export * from './models.js';
 export * from './chats.js';

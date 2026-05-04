@@ -1,4 +1,6 @@
-import { sqliteTable, text, integer, index, uniqueIndex } from 'drizzle-orm/sqlite-core';
+import { sqliteTable, text, integer, index, uniqueIndex, check } from 'drizzle-orm/sqlite-core';
+import { sql } from 'drizzle-orm';
+import type { StringValue } from 'ms';
 import type {
     UserSettings,
     UserRole,
@@ -245,6 +247,24 @@ export const models = sqliteTable('model', {
     index('idx_model_created_at').on(table.createdAt),
     index('idx_model_updated_at').on(table.updatedAt),
     index('idx_model_base_updated').on(table.baseModelId, table.updatedAt),
+]);
+
+/* -------------------- CONFIG TABLE -------------------- */
+
+/**
+ * The config table stores system-wide configuration settings.
+ * Uses a single-row pattern with CHECK constraint to enforce id = 1.
+ */
+export const config = sqliteTable('config', {
+    id: integer('id').primaryKey().notNull().default(1),
+    name: text('name').notNull().default('kitsu'),
+    enableSignup: integer('enable_signup', { mode: 'boolean' }).notNull().default(true),
+    defaultUserRole: text('default_user_role').$type<UserRole>().notNull().default(DEFAULT_USER_ROLE),
+    jwtExpiresIn: text('jwt_expires_in').$type<StringValue>().notNull().default('7d'),
+    updatedAt: integer('updated_at').notNull(),
+}, (table) => [
+    // Enforce single-row pattern
+    check('config_id_check', sql`${table.id} = 1`),
 ]);
 
 /* -------------------- VALIDATION -------------------- */

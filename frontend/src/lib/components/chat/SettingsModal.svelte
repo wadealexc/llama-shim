@@ -4,7 +4,7 @@
     import { models, settings, user, config, type Settings } from '$lib/stores';
     import { updateUserSettings } from '$lib/apis/users';
     import { getModels as _getModels } from '$lib/apis/models';
-    import { getBackendConfig } from '$lib/apis/configs';
+    import { getConfig } from '$lib/apis/configs';
 
     import Modal from '../common/Modal.svelte';
     import Account from './Settings/Account.svelte';
@@ -194,7 +194,7 @@
                     <General
                         saveHandler={async () => {
                             toast.success('Settings saved successfully!');
-                            config.set(await getBackendConfig());
+                            config.set(await getConfig());
                         }}
                     />
                 {/if}
