@@ -11,14 +11,14 @@
         ChatMessage
     } from '@backend/routes/types';
 
-    import { settings, applySettingsDefaults, chatId, APP_NAME, models } from '$lib/stores';
+    import { settings, chatId, APP_NAME, models } from '$lib/stores';
     import { createMessagesList } from '$lib/utils';
 
     import { getChatByShareId, cloneSharedChatById } from '$lib/apis/chats';
 
     import Messages from '$lib/components/chat/Messages.svelte';
 
-    import { getUserSettings } from '$lib/apis/users';
+    import { loadUserSettings } from '$lib/utils/settings';
     import { getModels } from '$lib/apis/models';
     import { toast } from 'svelte-sonner';
     import localizedFormat from 'dayjs/plugin/localizedFormat';
@@ -51,24 +51,7 @@
     }
 
     const loadSharedChat = async (_chatId: string) => {
-        let userSettings = await getUserSettings(localStorage.token).catch((error) => {
-            console.error(error);
-            return null;
-        });
-
-        if (!userSettings) {
-            let localStorageSettings: Record<string, any> = {};
-
-            try {
-                localStorageSettings = JSON.parse(localStorage.getItem('settings') ?? '{}');
-            } catch (e: unknown) {
-                console.error('Failed to parse settings from localStorage', e);
-            }
-
-            userSettings = { ui: localStorageSettings };
-        }
-
-        settings.set(applySettingsDefaults(userSettings.ui));
+        await loadUserSettings();
         models.set(await getModels(localStorage.token));
         chatId.set(_chatId);
 

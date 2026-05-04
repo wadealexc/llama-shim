@@ -292,23 +292,56 @@ describe('POST /api/v1/users/user/settings/update', () => {
         assert.deepStrictEqual(user?.settings, settings);
     });
 
-    test('should replace existing settings', async () => {
+    test('should merge partial ui fields, preserving others', async () => {
         const { token, userId } = await createUserWithToken('user');
 
-        // Set initial settings
-        const initialSettings = { ui: { theme: 'light' } };
+        // Set initial settings with multiple fields
+        const initialSettings = { ui: { theme: 'dark', webSearch: false, model: 'model-a' } };
         await Users.updateUserSettings(userId, initialSettings, db);
 
-        // Update with new settings
-        const newSettings = { ui: { theme: 'dark', language: 'en' } };
+        // Update with partial settings (only webSearch)
+        const partialSettings = { ui: { webSearch: true } };
 
         const response = await request(app)
             .post('/api/v1/users/user/settings/update')
             .set('Authorization', `Bearer ${token}`)
-            .send(newSettings)
+            .send(partialSettings)
             .expect(200);
 
-        assert.deepStrictEqual(response.body, newSettings);
+        // Verify response shows merged settings
+        assert.deepStrictEqual(response.body, {
+            ui: { theme: 'dark', webSearch: true, model: 'model-a' },
+        });
+
+        // Verify database was updated correctly
+        const user = await Users.getUserById(userId, db);
+        assert.deepStrictEqual(user?.settings, response.body);
+    });
+
+    test('should merge pinnedModels without affecting other fields', async () => {
+        const { token, userId } = await createUserWithToken('user');
+
+        // Set initial settings
+        const initialSettings = { ui: { theme: 'dark', pinnedModels: ['model1'], webSearch: false } };
+        await Users.updateUserSettings(userId, initialSettings, db);
+
+        // Update only pinnedModels
+        const newPinnedModels = { ui: { pinnedModels: ['model1', 'model2'] } };
+
+        const response = await request(app)
+            .post('/api/v1/users/user/settings/update')
+            .set('Authorization', `Bearer ${token}`)
+            .send(newPinnedModels)
+            .expect(200);
+
+        // Verify pinnedModels was updated but theme and webSearch preserved
+        assert.deepStrictEqual(response.body, {
+            ui: { theme: 'dark', pinnedModels: ['model1', 'model2'], webSearch: false },
+        });
+
+        // Verify database was updated correctly
+        const user = await Users.getUserById(userId, db);
+        assert.deepStrictEqual(user?.settings, response.body);
     });
 
     test('should accept any valid JSON object as settings', async () => {

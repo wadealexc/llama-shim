@@ -79,8 +79,8 @@
             pinnedModels = [...new Set([...pinnedModels, modelId])];
         }
 
-        settings.set({ ...$settings, pinnedModels: pinnedModels });
-        await updateUserSettings(localStorage.token, { ui: $settings });
+        settings.update(s => ({ ...s, pinnedModels: pinnedModels }));
+        await updateUserSettings(localStorage.token, { ui: { pinnedModels } });
     };
 
     const createFromBaseModel = (baseModel: ModelResponse) => {

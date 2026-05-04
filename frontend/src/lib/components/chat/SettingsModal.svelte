@@ -28,8 +28,8 @@
 
     const saveSettings = async (updated: Partial<Settings>) => {
         console.log(updated);
-        await settings.set({ ...$settings, ...updated });
-        await models.set(await getModels());
+        settings.update(s => ({ ...s, ...updated }));
+        models.set(await getModels());
         await updateUserSettings(localStorage.token, { ui: $settings });
     };
 

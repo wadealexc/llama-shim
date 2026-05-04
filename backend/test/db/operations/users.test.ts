@@ -261,7 +261,7 @@ describe('updateUserSettings', () => {
         db = await newDBWithAdmin();
     });
 
-    test('updates user settings', async () => {
+    test('merges into empty/null settings', async () => {
         const user = await Users.createUser(newUserParams(), db);
 
         const settings = {
@@ -275,6 +275,60 @@ describe('updateUserSettings', () => {
         const retrieved = await Users.getUserById(user.id, db);
         assert.ok(retrieved);
         assert.deepStrictEqual(retrieved.settings, settings);
+    });
+
+    test('preserves existing ui fields when merging new ones', async () => {
+        const user = await Users.createUser(newUserParams(), db);
+
+        // Set initial settings
+        const initialSettings = {
+            ui: { theme: 'dark', language: 'en', pinnedModels: ['model1'] },
+        };
+        await Users.updateUserSettings(user.id, initialSettings, db);
+
+        // Merge with new settings that only change theme
+        const mergeSettings = {
+            ui: { theme: 'light' },
+        };
+        const result = await Users.updateUserSettings(user.id, mergeSettings, db);
+
+        // Verify theme was updated but other fields preserved
+        assert.deepStrictEqual(result, {
+            ui: { theme: 'light', language: 'en', pinnedModels: ['model1'] },
+        });
+
+        const retrieved = await Users.getUserById(user.id, db);
+        assert.ok(retrieved);
+        assert.deepStrictEqual(retrieved.settings, result);
+    });
+
+    test('overwrites specified ui fields, leaves others intact', async () => {
+        const user = await Users.createUser(newUserParams(), db);
+
+        // Set initial settings
+        const initialSettings = {
+            ui: { theme: 'dark', webSearch: false, model: 'model-a' },
+        };
+        await Users.updateUserSettings(user.id, initialSettings, db);
+
+        // Update only webSearch
+        const updateSettings = {
+            ui: { webSearch: true },
+        };
+        const result = await Users.updateUserSettings(user.id, updateSettings, db);
+
+        // Verify webSearch was updated but theme and model preserved
+        assert.deepStrictEqual(result, {
+            ui: { theme: 'dark', webSearch: true, model: 'model-a' },
+        });
+    });
+
+    test('throws for non-existent user', async () => {
+        await assert.rejects(
+            async () =>
+                await Users.updateUserSettings('non-existent', { ui: {} }, db),
+            { message: `user record with id 'non-existent' not found` }
+        );
     });
 });
 

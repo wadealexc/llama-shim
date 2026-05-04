@@ -7,7 +7,6 @@
         configLoaded,
         user,
         settings,
-        applySettingsDefaults,
         APP_NAME,
         mobile,
         isLastActiveTab,
@@ -25,10 +24,8 @@
     import { getConfig } from '$lib/apis/configs';
     import { getSessionUser, userSignOut } from '$lib/apis/auths';
 
-    import { setTextScale } from '$lib/utils/text-scale';
-
     import Spinner from '$lib/components/common/Spinner.svelte';
-    import { getUserSettings } from '$lib/apis/users';
+    import { loadUserSettings } from '$lib/utils/settings';
 
     // handle frontend updates (https://svelte.dev/docs/kit/configuration#version)
     beforeNavigate(async ({ willUnload, to }) => {
@@ -61,26 +58,6 @@
 
             location.href = res.redirectUrl ?? '/auth';
         }
-    };
-
-    const loadUserSettings = async () => {
-        let userSettings = await getUserSettings(localStorage.token).catch((error) => {
-            console.error(error);
-            return null;
-        });
-
-        if (!userSettings) {
-            let localStorageSettings: Record<string, unknown> = {};
-            try {
-                localStorageSettings = JSON.parse(localStorage.getItem('settings') ?? '{}');
-            } catch (e: unknown) {
-                console.error('Failed to parse settings from localStorage', e);
-            }
-            userSettings = { ui: localStorageSettings };
-        }
-
-        settings.set(applySettingsDefaults(userSettings.ui));
-        setTextScale($settings.textScale);
     };
 
     const initAsync = async () => {

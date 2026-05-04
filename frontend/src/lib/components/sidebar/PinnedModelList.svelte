@@ -48,8 +48,8 @@
                           const pinnedModels = $settings.pinnedModels.filter(
                               (id) => id !== modelId
                           );
-                          settings.set({ ...$settings, pinnedModels });
-                          updateUserSettings(localStorage.token, { ui: $settings });
+                          settings.update(s => ({ ...s, pinnedModels }));
+                          updateUserSettings(localStorage.token, { ui: { pinnedModels } });
                       }
                     : undefined}
             />

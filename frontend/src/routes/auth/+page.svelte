@@ -8,6 +8,7 @@
     import { userSignIn, userSignUp } from '$lib/apis/auths';
 
     import { APP_NAME, config, user } from '$lib/stores';
+    import { loadUserSettings } from '$lib/utils/settings';
 
     import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
     import type { SessionUserResponse } from '@backend/routes/types';
@@ -30,6 +31,7 @@
             }
 
             user.set(sessionUser);
+            await loadUserSettings();
 
             if (!redirectPath) {
                 redirectPath = $page.url.searchParams.get('redirect') || '/';

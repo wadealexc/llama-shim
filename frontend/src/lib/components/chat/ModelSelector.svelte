@@ -24,9 +24,8 @@
 
     // Auto-save default model when user selects a new one
     $: if (initialized && value !== '') {
-        const newSettings = { ...$settings, model: value };
-        settings.set(newSettings);
-        updateUserSettings(localStorage.token, { ui: newSettings });
+        settings.update(s => ({ ...s, model: value }));
+        updateUserSettings(localStorage.token, { ui: { model: value } });
     }
 
     const pinModelHandler = async (modelId: string) => {
@@ -38,8 +37,8 @@
             pinnedModels = [...new Set([...pinnedModels, modelId])];
         }
 
-        settings.set({ ...$settings, pinnedModels: pinnedModels });
-        await updateUserSettings(localStorage.token, { ui: $settings });
+        settings.update(s => ({ ...s, pinnedModels }));
+        await updateUserSettings(localStorage.token, { ui: { pinnedModels } });
     };
 
     $: if ($models.length > 0) {

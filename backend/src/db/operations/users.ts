@@ -112,7 +112,7 @@ export async function updateLastActive(
 }
 
 /**
- * Update user's settings object.
+ * Update user's settings object (shallow merge at the `ui` level).
  * 
  * @param id - User id
  * @param settings
@@ -127,10 +127,24 @@ export async function updateUserSettings(
     settings: UserSettings,
     txOrDb: DbOrTx = db
 ): Promise<UserSettings> {
+    const existingUser = await getUserById(id, txOrDb);
+    if (!existingUser) throw new RecordNotFoundError(TABLE, id);
+
+    const existing = existingUser.settings ?? { ui: {} };
+
+    const merged: UserSettings = {
+        ...existing,
+        ...settings,
+        ui: {
+            ...(existing.ui ?? {}),
+            ...(settings.ui ?? {}),
+        },
+    };
+
     const [user] = await txOrDb
         .update(users)
         .set({
-            settings,
+            settings: merged,
             updatedAt: currentUnixTimestamp(),
         })
         .where(eq(users.id, id))
