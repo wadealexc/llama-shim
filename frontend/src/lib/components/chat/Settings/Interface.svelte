@@ -26,7 +26,6 @@
     let ctrlEnterToSend = false;
 
     let temporaryChatByDefault = false;
-    let chatFadeStreamingText = true;
 
     let webSearch: boolean = false;
 
@@ -67,8 +66,6 @@
     };
 
     onMount(async () => {
-        chatFadeStreamingText = $settings.chatFadeStreamingText;
-
         regenerateMenu = $settings.regenerateMenu;
 
         scrollOnBranchChange = $settings.scrollOnBranchChange;
@@ -213,25 +210,6 @@
                             bind:state={temporaryChatByDefault}
                             on:change={() => {
                                 saveSettings({ temporaryChatByDefault });
-                            }}
-                        />
-                    </div>
-                </div>
-            </div>
-
-            <div>
-                <div class=" py-0.5 flex w-full justify-between">
-                    <div id="fade-streaming-label" class=" self-center text-xs">
-                        {'Fade Effect for Streaming Text'}
-                    </div>
-
-                    <div class="flex items-center gap-2 p-1">
-                        <Switch
-                            ariaLabelledbyId="fade-streaming-label"
-                            tooltip={true}
-                            bind:state={chatFadeStreamingText}
-                            on:change={() => {
-                                saveSettings({ chatFadeStreamingText });
                             }}
                         />
                     </div>

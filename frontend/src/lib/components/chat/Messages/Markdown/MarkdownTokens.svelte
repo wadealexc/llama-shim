@@ -68,7 +68,7 @@
         <hr class=" border-gray-100/30 dark:border-gray-850/30" />
     {:else if token.type === 'heading'}
         <svelte:element this={headerComponent(token.depth)} dir="auto">
-            <MarkdownInlineTokens id={`${id}-${tokenIdx}-h`} tokens={token.tokens ?? []} {done} />
+            <MarkdownInlineTokens id={`${id}-${tokenIdx}-h`} tokens={token.tokens ?? []} />
         </svelte:element>
     {:else if token.type === 'code'}
         {#if token.raw.includes('```')}
@@ -103,7 +103,6 @@
                                             <MarkdownInlineTokens
                                                 id={`${id}-${tokenIdx}-header-${headerIdx}`}
                                                 tokens={header.tokens}
-                                                {done}
                                             />
                                         </div>
                                     </div>
@@ -130,7 +129,6 @@
                                             <MarkdownInlineTokens
                                                 id={`${id}-${tokenIdx}-row-${rowIdx}-${cellIdx}`}
                                                 tokens={cell.tokens}
-                                                {done}
                                             />
                                         </div>
                                     </td>
@@ -266,7 +264,6 @@
                 <MarkdownInlineTokens
                     id={`${id}-${tokenIdx}-p`}
                     tokens={token.tokens ?? []}
-                    {done}
                 />
             </span>
         {:else}
@@ -274,7 +271,6 @@
                 <MarkdownInlineTokens
                     id={`${id}-${tokenIdx}-p`}
                     tokens={token.tokens ?? []}
-                    {done}
                 />
             </p>
         {/if}
@@ -285,7 +281,6 @@
                     <MarkdownInlineTokens
                         id={`${id}-${tokenIdx}-t`}
                         tokens={token.tokens as Token[]}
-                        {done}
                     />
                 {:else}
                     {unescapeHtml(token.text)}
@@ -295,7 +290,6 @@
             <MarkdownInlineTokens
                 id={`${id}-${tokenIdx}-p`}
                 tokens={token.tokens as Token[]}
-                {done}
             />
         {:else}
             {unescapeHtml(token.text)}

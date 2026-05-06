@@ -54,7 +54,6 @@ export type Settings = {
     model: string;
     ctrlEnterToSend: boolean;
     temporaryChatByDefault: boolean;
-    chatFadeStreamingText: boolean;
     regenerateMenu: boolean;
 };
 
@@ -67,7 +66,6 @@ const DEFAULT_SETTINGS: Settings = {
     model: '',
     ctrlEnterToSend: false,
     temporaryChatByDefault: false,
-    chatFadeStreamingText: true,
     regenerateMenu: true
 };
 

@@ -7,11 +7,9 @@
     import Image from '$lib/components/common/Image.svelte';
     import KatexRenderer from './KatexRenderer.svelte';
     import HtmlToken from './HTMLToken.svelte';
-    import TextToken from './MarkdownInlineTokens/TextToken.svelte';
     import CodespanToken from './MarkdownInlineTokens/CodespanToken.svelte';
 
     export let id: string;
-    export let done = true;
     export let tokens: Token[];
 
     /**
@@ -45,7 +43,7 @@
                 title={token.title}
                 on:click={(e) => handleLinkClick(e, token.href)}
             >
-                <svelte:self id={`${id}-a`} tokens={token.tokens} {done} />
+                <svelte:self id={`${id}-a`} tokens={token.tokens} />
             </a>
         {:else}
             <a
@@ -63,7 +61,7 @@
     {:else if token.type === 'em'}
         <em><svelte:self id={`${id}-em`} tokens={token.tokens} /></em>
     {:else if token.type === 'codespan'}
-        <CodespanToken token={token as Tokens.Codespan} {done} />
+        <CodespanToken token={token as Tokens.Codespan} />
     {:else if token.type === 'br'}
         <br />
     {:else if token.type === 'del'}
@@ -89,8 +87,8 @@
             }}
         ></iframe>
     {:else if token.type === 'citation'}
-        <TextToken {token} {done} />
+        {token?.raw}
     {:else if token.type === 'text'}
-        <TextToken {token} {done} />
+        {token?.raw}
     {/if}
 {/each}

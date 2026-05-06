@@ -334,7 +334,7 @@
                                     <Markdown
                                         id={`${chatId}-${message.id}`}
                                         content={message.content}
-                                        done={$settings.chatFadeStreamingText ? message.done : true}
+                                        done={message.done}
                                     />
                                 {/if}
 
