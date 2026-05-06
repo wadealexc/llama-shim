@@ -130,6 +130,7 @@
         ) {
             scrollWrapperElement.scrollTop = scrollWrapperElement.scrollHeight;
         }
+        scrollEditorIntoView();
     }
 
     function handleKeydown(e: KeyboardEvent) {
