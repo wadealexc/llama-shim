@@ -463,10 +463,11 @@
 
                         <div class="px-2.5">
                             <div
-                                class="scrollbar-hidden text-left bg-transparent dark:text-gray-100 outline-hidden w-full pb-1 px-1 resize-none h-fit max-h-96 overflow-auto {files.length ===
+                                class="scrollbar-hidden text-left bg-transparent dark:text-gray-100 outline-hidden w-full pb-1 px-1 resize-none h-fit overflow-auto {files.length ===
                                 0
                                     ? 'pt-2.5'
                                     : ''}"
+                                style="max-height: min(24rem, calc(var(--app-height, 100dvh) - 10rem));"
                                 id="chat-input-container"
                                 on:pointerdown|stopPropagation
                             >

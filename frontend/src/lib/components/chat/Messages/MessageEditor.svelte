@@ -1,6 +1,7 @@
 <script lang="ts">
     import { tick, createEventDispatcher, onDestroy } from 'svelte';
-    import { isEditingMessage } from '$lib/stores';
+    import { get } from 'svelte/store';
+    import { isEditingMessage, mobile } from '$lib/stores';
 
     export let content: string = '';
     export let primaryLabel: string = 'Save';
@@ -19,6 +20,7 @@
     let textAreaElement: HTMLTextAreaElement;
     let buttonBarElement: HTMLDivElement;
     let containerElement: HTMLDivElement;
+    let scrollWrapperElement: HTMLDivElement;
 
     const endEdit = () => isEditingMessage.set(false);
     onDestroy(endEdit);
@@ -43,7 +45,8 @@
 
         // The scroll-to-bottom FAB floats ~48px above MessageInput into the
         // messages area.  Reserve clearance so buttons aren't hidden behind it.
-        const BOTTOM_CLEARANCE = 56;
+        // On mobile, the FAB is hidden during editing, so use smaller clearance.
+        const BOTTOM_CLEARANCE = get(mobile) ? 8 : 56;
         const TOP_PAD = 8;
 
         const visibleTop = scrollRect.top;
@@ -67,18 +70,8 @@
             }
         } else {
             // Editor is taller than the visible area.
-            // Priority: show the top of the editor, but ensure buttons
-            // are above the effective visible bottom.
-            const idealDelta = editorTop - TOP_PAD;
-            const buttonBottomAfterScroll = buttonBottom - idealDelta;
-
-            if (buttonBottomAfterScroll <= visibleHeight) {
-                // Showing the top keeps buttons visible too
-                scrollDelta = idealDelta;
-            } else {
-                // Can't show both — keep buttons at the effective bottom
-                scrollDelta = buttonBottom - visibleHeight + TOP_PAD;
-            }
+            // Priority: keep save/cancel buttons visible at the bottom.
+            scrollDelta = buttonBottom - visibleHeight + TOP_PAD;
         }
 
         if (Math.abs(scrollDelta) > 1) {
@@ -95,6 +88,9 @@
             textAreaElement.style.height = `${textAreaElement.scrollHeight}px`;
             textAreaElement.focus({ preventScroll: true });
         }
+        if (scrollWrapperElement) {
+            scrollWrapperElement.scrollTop = scrollWrapperElement.scrollHeight;
+        }
 
         // Scroll immediately so the editor is visible (handles desktop and
         // cases where the mobile keyboard is already open).
@@ -108,7 +104,12 @@
             let resizeTimer: NodeJS.Timeout;
             const onResize = () => {
                 clearTimeout(resizeTimer);
-                resizeTimer = setTimeout(scrollEditorIntoView, 150);
+                resizeTimer = setTimeout(() => {
+                    if (scrollWrapperElement) {
+                        scrollWrapperElement.scrollTop = scrollWrapperElement.scrollHeight;
+                    }
+                    scrollEditorIntoView();
+                }, 150);
             };
             window.visualViewport.addEventListener('resize', onResize);
             // Stop listening after 1.5s (keyboard animation is ~400ms)
@@ -123,6 +124,12 @@
         const t = e.target as HTMLTextAreaElement;
         t.style.height = '';
         t.style.height = `${t.scrollHeight}px`;
+        if (
+            scrollWrapperElement &&
+            scrollWrapperElement.scrollHeight > scrollWrapperElement.clientHeight
+        ) {
+            scrollWrapperElement.scrollTop = scrollWrapperElement.scrollHeight;
+        }
     }
 
     function handleKeydown(e: KeyboardEvent) {
@@ -139,7 +146,11 @@
     <slot name="files" />
 
     {#if scrollContainer}
-        <div class="max-h-96 overflow-auto">
+        <div
+            bind:this={scrollWrapperElement}
+            class="overflow-auto"
+            style="max-height: min(24rem, calc(var(--app-height, 100dvh) - 8rem));"
+        >
             <textarea
                 bind:this={textAreaElement}
                 class="bg-transparent outline-hidden w-full resize-none {textareaClass}"

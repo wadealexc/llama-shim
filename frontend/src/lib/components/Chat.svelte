@@ -238,6 +238,7 @@
     // When the virtual keyboard opens/closes, re-scroll the messages container
     // to the bottom so the last message stays visible after the layout shrinks.
     const onViewportResize = () => {
+        if ($isEditingMessage) return;
         scrollToBottom();
     };
 
