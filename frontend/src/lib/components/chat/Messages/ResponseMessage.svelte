@@ -2,7 +2,7 @@
     import { toast } from 'svelte-sonner';
 
     import { onDestroy, onMount, tick } from 'svelte';
-    import { models, settings, streamContext, type Model } from '$lib/stores';
+    import { models, settings, streamContext, editScrollPosition, type Model } from '$lib/stores';
     import type {
         ChatHistory,
         ChatMessage,
@@ -100,6 +100,10 @@
     };
 
     const editMessageHandler = async () => {
+        const container = document.getElementById('messages-container');
+        if (container) {
+            editScrollPosition.set(container.scrollTop);
+        }
         edit = true;
         await tick();
         editorRef.activate(message.content);

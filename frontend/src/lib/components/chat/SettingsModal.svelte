@@ -194,7 +194,10 @@
                     </button>
                 {/if}
             </div>
-            <div class="flex-1 px-3.5 md:pl-0 md:pr-4.5 md:min-h-[42rem] max-h-[42rem]">
+            <div
+                class="flex-1 px-3.5 md:pl-0 md:pr-4.5 md:min-h-[42rem]"
+                style="max-height: min(42rem, calc(var(--app-height, 100dvh) - 8rem));"
+            >
                 {#if selectedTab === 'chat'}
                     <Chat
                         {saveSettings}

@@ -40,7 +40,8 @@
         selectedFolder,
         streamContext,
         selectedModel,
-        isEditingMessage
+        isEditingMessage,
+        editScrollPosition
     } from '$lib/stores';
     import { wakeModel } from '$lib/apis/models';
 
@@ -90,6 +91,8 @@
     /// Saved scroll position for system prompt toggle restoration
     let savedScrollState: number | undefined = undefined;
     let prevSystemPromptVisible: boolean = false;
+    let prevIsEditingMessage: boolean = false;
+    let suppressScrollToBottom: boolean = false;
     /// Track whether we're at the bottom of the messages container
     let isAtBottom: boolean = true;
 
@@ -239,6 +242,7 @@
     // to the bottom so the last message stays visible after the layout shrinks.
     const onViewportResize = () => {
         if ($isEditingMessage) return;
+        if (suppressScrollToBottom) return;
         scrollToBottom();
     };
 
@@ -444,6 +448,30 @@
             }
         }
         prevSystemPromptVisible = systemPromptVisible;
+    }
+
+    // Restore scroll position when message editing ends.
+    // The scroll position is saved by the edit button handler (in
+    // ResponseMessage/UserMessage) BEFORE the DOM changes, via the
+    // editScrollPosition store.
+    $: {
+        if (!$isEditingMessage && prevIsEditingMessage) {
+            suppressScrollToBottom = true;
+            const savedPos = $editScrollPosition;
+            tick().then(() => {
+                if (savedPos !== undefined && messagesContainerElement) {
+                    messagesContainerElement.scrollTo({
+                        top: savedPos,
+                        behavior: 'auto'
+                    });
+                    editScrollPosition.set(undefined);
+                }
+                setTimeout(() => {
+                    suppressScrollToBottom = false;
+                }, 1500);
+            });
+        }
+        prevIsEditingMessage = $isEditingMessage;
     }
 
     //////////////////////////

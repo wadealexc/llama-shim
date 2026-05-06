@@ -39,7 +39,7 @@
     class="flex flex-col h-full justify-between text-sm"
     on:submit={handleSubmit}
 >
-    <div class="overflow-y-scroll max-h-[28rem] md:max-h-full">
+    <div class="overflow-y-scroll max-h-full">
         <h1 class="mb-2 text-sm font-medium">{'Chat'}</h1>
 
         <!-- Enable web search by default -->
@@ -97,6 +97,13 @@
                     type="text"
                     bind:value={userLocationString}
                     disabled={!userLocation}
+                    autocomplete="off"
+                    on:focus={(e) => {
+                        const input = e.currentTarget;
+                        requestAnimationFrame(() => {
+                            input.selectionStart = input.selectionEnd = input.value.length;
+                        });
+                    }}
                     class="px-2 py-1 text-xs rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-gray-900 dark:text-gray-100 outline-none focus:ring-2 focus:ring-blue-500 disabled:opacity-50 disabled:cursor-not-allowed"
                     placeholder="Enter your location"
                     aria-labelledby="user-location-text-label"

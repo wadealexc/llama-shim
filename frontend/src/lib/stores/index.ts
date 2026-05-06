@@ -99,6 +99,10 @@ export const isLastActiveTab = writable(true);
 // Used to hide MessageInput on mobile so the editor has more viewport space.
 export const isEditingMessage = writable(false);
 
+// Scroll position saved by the edit button BEFORE entering edit mode.
+// Read by Chat.svelte to restore position when editing ends.
+export const editScrollPosition = writable<number | undefined>(undefined);
+
 // Live stream context info (context usage + TPS), updated during active generation
 export type StreamContext = {
     used: number;

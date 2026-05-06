@@ -2,7 +2,7 @@
     import dayjs from 'dayjs';
     import { toast } from 'svelte-sonner';
     import { tick } from 'svelte';
-    import { user as _user } from '$lib/stores';
+    import { user as _user, editScrollPosition } from '$lib/stores';
     import { copyToClipboard as _copyToClipboard, formatDate } from '$lib/utils';
     import { API_BASE_URL } from '$lib/constants';
     import type { ChatHistory, ChatMessage, ChatMessageFile } from '@backend/routes/types';
@@ -67,6 +67,10 @@
     };
 
     const editMessageHandler = async () => {
+        const container = document.getElementById('messages-container');
+        if (container) {
+            editScrollPosition.set(container.scrollTop);
+        }
         edit = true;
         editedFiles = [...message.files];
         await tick();

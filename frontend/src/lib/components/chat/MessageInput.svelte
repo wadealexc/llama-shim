@@ -654,7 +654,7 @@
                                     <div class=" flex items-center">
                                         <Tooltip content="Stop">
                                             <button
-                                                class="bg-white hover:bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800 transition rounded-lg p-1.5"
+                                                class="bg-white hover:bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-white dark:hover:bg-gray-800 transition rounded-lg px-4 py-1.5 self-center"
                                                 aria-label="Stop"
                                                 on:click={() => {
                                                     stopResponse();

@@ -26,14 +26,34 @@
     // the keyboard opens, and we compensate with a transform rather than
     // fighting it with scrollTo.  Both vars MUST update together on every
     // event to avoid frames where one is stale.
+    let prevVvHeight: number | undefined;
+
     const syncViewport = () => {
         const vv = window.visualViewport;
         if (!vv) return;
+        const heightChanged = prevVvHeight !== undefined && Math.abs(vv.height - prevVvHeight) > 1;
+        prevVvHeight = vv.height;
+
         document.documentElement.style.setProperty('--app-height', `${vv.height}px`);
         // iOS pushes the web view when the keyboard opens, ignoring
         // overflow:hidden.  Counter-scroll to keep content at the top.
         if (window.scrollY !== 0) {
             window.scrollTo(0, 0);
+        }
+        // When the keyboard opens/closes (height change), ensure focused
+        // inputs outside the chat container remain visible.
+        // Skip on pure scroll events to avoid resetting scroll position.
+        if (heightChanged) {
+            const active = document.activeElement;
+            if (
+                active &&
+                (active.tagName === 'INPUT' || active.tagName === 'TEXTAREA') &&
+                !active.closest('#chat-container')
+            ) {
+                requestAnimationFrame(() => {
+                    active.scrollIntoView({ block: 'nearest', behavior: 'instant' });
+                });
+            }
         }
     };
 
