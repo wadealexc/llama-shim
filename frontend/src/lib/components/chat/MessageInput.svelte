@@ -681,8 +681,8 @@
                                             <button
                                                 id="send-message-button"
                                                 class="{!(prompt === '' && files.length === 0)
-                                                    ? 'bg-orange-300 text-white hover:bg-orange-400 dark:bg-orange-300 dark:text-white dark:hover:bg-orange-400 '
-                                                    : 'text-white bg-gray-200 dark:text-gray-900 dark:bg-gray-700 disabled'} transition rounded-lg px-2.5 py-1.5 self-center"
+                                                    ? 'bg-cyan-600 text-white hover:bg-cyan-500 dark:bg-cyan-600 dark:text-white dark:hover:bg-cyan-500 '
+                                                    : 'text-white bg-gray-200 dark:text-gray-900 dark:bg-gray-700 disabled'} transition rounded-lg px-4 py-1.5 self-center"
                                                 aria-label="Send message"
                                                 type="submit"
                                                 disabled={prompt === '' && files.length === 0}
