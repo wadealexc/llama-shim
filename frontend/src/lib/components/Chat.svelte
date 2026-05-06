@@ -647,7 +647,7 @@
         scrollToBottom();
 
         // Compute system prompt variables with client-side info
-        const rawVars = await getPromptVariables($user!.username, $settings.userLocation);
+        const rawVars = await getPromptVariables($user!.username, $settings.userLocation, $settings.userLocationString);
         const promptVariables: Record<string, string> = Object.fromEntries(
             Object.entries(rawVars)
                 .filter(([, v]) => v !== undefined && v !== null)

@@ -11,7 +11,8 @@
     "test": "NODE_ENV=test tsx --test 'test/**/*.test.ts'",
     "db:generate": "drizzle-kit generate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "db:backup": "mkdir -p data/backups && sqlite3 data/app.db \".backup data/backups/app.$(date +%Y%m%d-%H%M%S).db\" && ls -lh data/backups/ | tail -1"
   },
   "keywords": [],
   "author": "",

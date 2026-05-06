@@ -332,28 +332,6 @@ describe('updateUserSettings', () => {
     });
 });
 
-describe('updateUserInfo', () => {
-    let db: TestDatabase;
-
-    before(async () => {
-        db = await newDBWithAdmin();
-    });
-
-    test('updates user info', async () => {
-        const user = await Users.createUser(newUserParams(), db);
-
-        const info = { location: 'San Francisco', age: 30 };
-
-        const result = await Users.updateUserInfo(user.id, info, db);
-
-        assert.deepStrictEqual(result, info);
-
-        const retrieved = await Users.getUserById(user.id, db);
-        assert.ok(retrieved);
-        assert.deepStrictEqual(retrieved.info, info);
-    });
-});
-
 /* -------------------- PROFILE OPERATIONS TESTS -------------------- */
 
 describe('updateProfile', () => {

@@ -30,7 +30,6 @@ export const users = sqliteTable('user', {
     role: text('role').$type<UserRole>().notNull(),
 
     // Settings & Metadata (JSON)
-    info: text('info', { mode: 'json' }).$type<Record<string, any>>(),
     settings: text('settings', { mode: 'json' }).$type<UserSettings>(),
 
     // Timestamps (unix seconds)

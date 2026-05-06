@@ -155,35 +155,6 @@ export async function updateUserSettings(
     return user.settings;
 }
 
-/**
- * Update user's info object.
- * 
- * @param id - User id
- * @param info
- * @param txOrDb
- * 
- * @returns the updated user info object
- * 
- * @throws if record update fails
- */
-export async function updateUserInfo(
-    id: string,
-    info: Record<string, any>,
-    txOrDb: DbOrTx = db
-): Promise<Record<string, any>> {
-    const [user] = await txOrDb
-        .update(users)
-        .set({
-            info,
-            updatedAt: currentUnixTimestamp(),
-        })
-        .where(eq(users.id, id))
-        .returning();
-
-    if (!user) throw new RecordNotFoundError(TABLE, id);
-    return user.info || {};
-}
-
 export type UpdateUserProfile = {
     username?: string;
 };

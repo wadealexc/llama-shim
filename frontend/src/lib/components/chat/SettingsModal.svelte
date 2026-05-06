@@ -9,9 +9,11 @@
     import Modal from '../common/Modal.svelte';
     import Account from './Settings/Account.svelte';
     import Interface from './Settings/Interface.svelte';
+    import Chat from './Settings/Chat.svelte';
     import XMark from '../icons/XMark.svelte';
     import UserCircle from '../icons/UserCircle.svelte';
     import AppNotification from '../icons/AppNotification.svelte';
+    import ChatBubble from '../icons/ChatBubble.svelte';
     import Users from '../icons/Users.svelte';
     import Wrench from '../icons/Wrench.svelte';
 
@@ -37,9 +39,9 @@
         return await _getModels(localStorage.token);
     };
 
-    let selectedTab = 'interface';
+    let selectedTab = 'chat';
 
-    const tabs = ['interface', 'account'];
+    const tabs = ['chat', 'interface', 'account'];
 
     // Function to handle sideways scrolling
     const scrollHandler = (event: WheelEvent) => {
@@ -91,7 +93,25 @@
                 class="tabs flex flex-row overflow-x-auto gap-2.5 mx-3 md:pr-4 md:gap-1 md:flex-col flex-1 md:flex-none md:w-50 md:min-h-[42rem] md:max-h-[42rem] dark:text-gray-200 text-sm text-left mb-1 md:mb-0 -translate-y-1"
             >
                 {#each tabs as tabId (tabId)}
-                    {#if tabId === 'interface'}
+                    {#if tabId === 'chat'}
+                        <button
+                            role="tab"
+                            aria-controls="tab-chat"
+                            aria-selected={selectedTab === 'chat'}
+                            class="px-0.5 md:px-2.5 py-1 min-w-fit rounded-xl flex-1 md:flex-none flex text-left transition {selectedTab ===
+                            'chat'
+                                ? ''
+                                : 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'}"
+                            on:click={() => {
+                                selectedTab = 'chat';
+                            }}
+                        >
+                            <div class=" self-center mr-2">
+                                <ChatBubble strokeWidth="2" />
+                            </div>
+                            <div class=" self-center">{'Chat'}</div>
+                        </button>
+                    {:else if tabId === 'interface'}
                         <button
                             role="tab"
                             aria-controls="tab-interface"
@@ -175,7 +195,14 @@
                 {/if}
             </div>
             <div class="flex-1 px-3.5 md:pl-0 md:pr-4.5 md:min-h-[42rem] max-h-[42rem]">
-                {#if selectedTab === 'interface'}
+                {#if selectedTab === 'chat'}
+                    <Chat
+                        {saveSettings}
+                        on:save={() => {
+                            toast.success('Settings saved successfully!');
+                        }}
+                    />
+                {:else if selectedTab === 'interface'}
                     <Interface
                         {saveSettings}
                         on:save={() => {

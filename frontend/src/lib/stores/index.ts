@@ -49,6 +49,7 @@ export type Settings = {
     pinnedModels: string[];
     textScale: number;
     userLocation: boolean;
+    userLocationString: string | undefined;
     webSearch: boolean;
     scrollOnBranchChange: boolean;
     model: string;
@@ -61,6 +62,7 @@ const DEFAULT_SETTINGS: Settings = {
     pinnedModels: [],
     textScale: 1,
     userLocation: false,
+    userLocationString: undefined,
     webSearch: false,
     scrollOnBranchChange: true,
     model: '',

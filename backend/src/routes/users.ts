@@ -296,50 +296,6 @@ router.post('/user/settings/update', requireAuth, async (
     }
 });
 
-/**
- * GET /api/v1/users/user/info
- * Access Control: Requires HTTPBearer authentication (any verified user)
- *
- * Get the current authenticated user's custom info object (arbitrary JSON data).
- *
- * @returns {object | null} - user info object
- * 
- * TODO: UNUSED ON FRONTEND
- */
-router.get('/user/info', requireAuth, (
-    req: Types.TypedRequest,
-    res: Response<Record<string, any> | null | Types.ErrorResponse>
-) => {
-    return res.json(req.user!.info);
-});
-
-/**
- * POST /api/v1/users/user/info/update
- * Access Control: Requires HTTPBearer authentication (any verified user)
- *
- * Update the current authenticated user's custom info object.
- *
- * @param {object} - updated info object
- * @returns {object | null} - updated info object
- * 
- * TODO: Used on frontend, but seems to be pointless. Info isn't queried.
- */
-router.post('/user/info/update', requireAuth, async (
-    req: Types.TypedRequest<{}, Record<string, any>>,
-    res: Response<Record<string, any> | null | Types.ErrorResponse>
-) => {
-    const userId = req.user!.id;
-    const info = req.body;
-
-    try {
-        const updatedInfo = await Users.updateUserInfo(userId, info, db);
-        return res.json(updatedInfo);
-    } catch (error) {
-        console.error('Update user info error:', error);
-        return res.status(500).json({ detail: 'Internal server error' });
-    }
-});
-
 /* -------------------- EXPORT -------------------- */
 
 export default router;

@@ -1,5 +1,4 @@
 import { API_BASE_URL } from '$lib/constants';
-import { getUserPosition } from '$lib/utils';
 import type {
     UserModelListResponse,
     UserActiveResponse,
@@ -104,43 +103,6 @@ export const getUserById = async (token: string, userId: string): Promise<UserAc
     }
 
     return await res.json();
-};
-
-export const updateUserInfo = async (
-    token: string,
-    info: object
-): Promise<Record<string, any> | null> => {
-    const route = '/users/user/info/update';
-    const res = await fetch(`${API_BASE_URL}${route}`, {
-        method: 'POST',
-        headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ ...info })
-    });
-
-    if (!res.ok) {
-        const err = await res.json();
-        throw err.detail ?? `Request failed: ${route}`;
-    }
-
-    return await res.json();
-};
-
-export const getAndUpdateUserLocation = async (token: string) => {
-    const location = await getUserPosition().catch((err) => {
-        console.error(err);
-        return undefined;
-    });
-
-    if (location) {
-        await updateUserInfo(token, { location: location });
-        return location;
-    } else {
-        console.info('Failed to get user location');
-        return undefined;
-    }
 };
 
 export const deleteUserById = async (token: string, userId: string): Promise<boolean> => {

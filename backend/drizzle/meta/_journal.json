@@ -43,6 +43,13 @@
       "when": 1777920210476,
       "tag": "0005_lethal_whiplash",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "6",
+      "when": 1778088503778,
+      "tag": "0006_opposite_marvel_zombies",
+      "breakpoints": true
     }
   ]
 }

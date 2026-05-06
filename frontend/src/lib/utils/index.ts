@@ -9,8 +9,6 @@ dayjs.extend(isToday);
 dayjs.extend(isYesterday);
 dayjs.extend(localizedFormat);
 
-import { getAndUpdateUserLocation } from '$lib/apis/users';
-
 export const sanitizeResponseContent = (content: string): string => {
     return content
         .replace(/<\|[a-z]*$/, '')
@@ -88,31 +86,6 @@ export const getImportOrigin = (_chats: any[]): string => {
         return 'openai';
     }
     return 'webui';
-};
-
-export const getUserPosition = async (
-    raw = false
-): Promise<string | { latitude: number; longitude: number }> => {
-    // Get the user's location using the Geolocation API
-    const position = await new Promise<GeolocationPosition>((resolve, reject) => {
-        navigator.geolocation.getCurrentPosition(resolve, reject);
-    }).catch((error) => {
-        console.error('Error getting user location:', error);
-        throw error;
-    });
-
-    if (!position) {
-        return 'Location not available';
-    }
-
-    // Extract the latitude and longitude from the position
-    const { latitude, longitude } = position.coords;
-
-    if (raw) {
-        return { latitude, longitude };
-    } else {
-        return `${latitude.toFixed(3)}, ${longitude.toFixed(3)} (lat, long)`;
-    }
 };
 
 const convertOpenAIMessages = (convo: any) => {
@@ -230,20 +203,14 @@ export const convertOpenAIChats = (_chats: any[]): any[] => {
     return chats;
 };
 
-type LocationResult = string | { latitude: number, longitude: number };
-
 export const getPromptVariables = async (
     username: string,
-    getLocation: boolean,
-): Promise<Record<string, LocationResult | undefined>> => {
-    // Get user location if needed
-    let userLocation: LocationResult | undefined = getLocation 
-        ? await getAndUpdateUserLocation(localStorage.token) 
-        : undefined;
-
+    userLocation: boolean,
+    userLocationString: string | undefined,
+): Promise<Record<string, string>> => {
     return {
         '{{USER_NAME}}': username,
-        '{{USER_LOCATION}}': userLocation || 'Unknown',
+        '{{USER_LOCATION}}': (userLocation && userLocationString) ? userLocationString : 'Unknown',
         '{{CURRENT_DATETIME}}': getCurrentDateTime(),
         '{{CURRENT_DATE}}': getFormattedDate(),
         '{{CURRENT_TIME}}': getFormattedTime(),
