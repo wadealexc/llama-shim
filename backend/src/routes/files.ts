@@ -1,87 +1,83 @@
 import { Router, type Response } from 'express';
-import path from 'path';
 import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
 import multer from 'multer';
 
-import * as Types from './types/index.js';
-import { requireAuth, validateFileId } from './middleware.js';
-import { db, Files } from '../db/index.js';
-import { HttpError, NotFoundError, UnauthorizedError } from './errors.js';
-import { StorageProvider } from '../storage/provider.js';
+import type { ChatMessageFile } from './types/chats.js';
+import type { ErrorResponse, TypedRequest } from './types/common.js';
+import { requireAuth } from './middleware.js';
 
 const router = Router();
 
 /* -------------------- FILE VALIDATION CONFIG -------------------- */
 
-// Maximum file size (100MB default)
+// Maximum file size (50MB, aligned with Express body parser limit)
 const MB_IN_BYTES = 1024 * 1024;
-const MAX_FILE_SIZE = process.env.MAX_FILE_SIZE ? parseInt(process.env.MAX_FILE_SIZE) : 100 * MB_IN_BYTES;
-
+const MAX_FILE_SIZE = 50 * MB_IN_BYTES;
 const MAX_FILE_COUNT = 1;
 
-// Allowed file extensions
-const ALLOWED_EXTENSIONS = [
-    // Documents
-    '.pdf', '.doc', '.docx', '.txt', '.md', '.rtf', '.odt',
-    '.xls', '.xlsx', '.ppt', '.pptx', '.csv',
-
-    // Code / text
-    '.json', '.xml', '.yaml', '.yml', '.html', '.htm', '.css', '.js', '.ts',
-
-    // Images
-    '.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp',
-
-    // Audio
-    '.mp3', '.wav', '.ogg', '.m4a', '.flac',
-
-    // Video
-    '.mp4', '.webm', '.mov', '.avi',
-];
+/* -------------------- FILE CLASSIFICATION -------------------- */
 
 /**
- * Validate file extension against allowlist.
+ * Classify a file buffer and return a ChatMessageFile shape.
+ * Returns null for unsupported file types.
  */
-function validateFileExtension(filename: string): boolean {
-    const ext = path.extname(filename).toLowerCase();
-    return ALLOWED_EXTENSIONS.includes(ext);
+async function classify(filename: string, mimeType: string, buf: Buffer): Promise<ChatMessageFile | null> {
+    const meta = { name: filename, size: buf.length, contentType: mimeType };
+
+    // Images: trust browser mimetype.
+    if (mimeType.startsWith('image/')) {
+        return {
+            kind: 'image',
+            dataUrl: `data:${mimeType};base64,${buf.toString('base64')}`,
+            ...meta,
+        };
+    }
+
+    // PDFs: extract text.
+    if (mimeType === 'application/pdf') {
+        const text = await new PDFParse({ data: buf })
+            .getText()
+            .then(r => r.text)
+            .catch(() => null);
+
+        if (text === null) return null;
+        return { kind: 'text', content: text, ...meta, };
+    }
+
+    // docx: extract text.
+    if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
+        const text = await mammoth.extractRawText({ buffer: buf })
+            .then(r => r.value)
+            .catch(() => null);
+
+        if (text === null) return null;
+        return { kind: 'text', content: text, ...meta, };
+    }
+
+    // Text-like by mimetype OR by content sniff (catches extensionless text,
+    // .ts/.md/.yml/etc. that browsers report with weird or missing mimetypes,
+    // and unknown programming-language extensions).
+    if (mimeType.startsWith('text/') || isLikelyText(buf)) {
+        return { kind: 'text', content: buf.toString('utf-8'), ...meta, };
+    }
+
+    return null;
 }
 
 /**
- * Extract text content from a file buffer.
- * Returns the extracted string for supported types, undefined for unsupported types.
+ * Check if a buffer is likely text content by sampling the first 8KB.
+ * Returns true if >95% of bytes are printable ASCII or common whitespace.
  */
-async function extractTextContent(buffer: Buffer, mimeType: string): Promise<string | undefined> {
-    const textMimeTypes = [
-        'text/plain', 'text/markdown', 'text/csv', 'text/html',
-        'text/css', 'text/javascript', 'text/xml',
-        'application/json', 'application/xml',
-    ];
-
-    if (textMimeTypes.some((t) => mimeType.startsWith(t)) || mimeType.startsWith('text/')) {
-        return buffer.toString('utf-8');
+function isLikelyText(buf: Buffer): boolean {
+    if (buf.length === 0) return false;
+    const sample = buf.subarray(0, Math.min(buf.length, 8192));
+    let printable = 0;
+    for (const b of sample) {
+        if (b === 0) return false;
+        if ((b >= 32 && b < 127) || b === 9 || b === 10 || b === 13) printable++;
     }
-
-    if (mimeType === 'application/pdf') {
-        try {
-            const parser = new PDFParse({ data: buffer });
-            const result = await parser.getText();
-            return result.text;
-        } catch {
-            return undefined;
-        }
-    }
-
-    if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document') {
-        try {
-            const result = await mammoth.extractRawText({ buffer });
-            return result.value;
-        } catch {
-            return undefined;
-        }
-    }
-
-    return undefined;
+    return printable / sample.length > 0.95;
 }
 
 /* -------------------- MULTER MIDDLEWARE -------------------- */
@@ -94,203 +90,41 @@ const upload = multer({
     },
 });
 
-/* -------------------- FILE UPLOAD -------------------- */
-
-/**
- * POST /api/v1/files/
- * Access Control: Any verified user can upload files
- *
- * Upload a new file. For text-extractable file types, content is extracted
- * and stored in data.content so it can be included in chat completion requests.
- *
- * @body multipart form-data with 'file' field
- * @returns {Types.FileModelResponse} - uploaded file metadata
- */
-router.post('/', requireAuth, upload.single('file'), async (
-    multerReq,
-    res: Response<Types.FileModelResponse | Types.ErrorResponse>
-) => {
-    const req = multerReq as unknown as Types.TypedRequest<{}, {}, {}>;
-
-    // Validate file exists and has valid extension
-    if (!req.file) return res.status(400).json({ detail: 'File required' });
-
-    if (!validateFileExtension(req.file.originalname)) return res.status(400).json({
-        detail: 'File type not allowed'
-    });
-
-    const userId = req.user!.id;
-    const fileBuffer = req.file.buffer;
-    const originalFilename = req.file.originalname;
-    const mimeType = req.file.mimetype;
-
-    try {
-        const file = await db.transaction(async (tx) => {
-            // Upload to storage
-            const uploadPath = await StorageProvider.uploadFile(fileBuffer);
-
-            // Extract text content for text-based file types
-            const textContent = await extractTextContent(fileBuffer, mimeType);
-
-            // Create file record
-            const newFile = await Files.createFile({
-                userId: userId,
-                filename: originalFilename,
-                path: uploadPath,
-                data: textContent !== undefined ? { content: textContent } : {},
-                meta: {
-                    name: originalFilename,
-                    contentType: mimeType,
-                    size: fileBuffer.length,
-                },
-            }, tx);
-
-            return newFile;
-        });
-
-        const { path: _, accessControl: __, ...fileResponse } = file;
-        return res.json(fileResponse);
-    } catch (error) {
-        console.error('File upload error:', error);
-        return res.status(500).json({ detail: 'File upload failed' });
-    }
-});
-
-/* -------------------- FILE CONTENT EXTRACTION -------------------- */
+/* -------------------- FILE EXTRACTION -------------------- */
 
 /**
  * POST /api/v1/files/extract
  * Access Control: Any verified user
  *
- * Extract text content from an uploaded file without storing it.
+ * Extract and classify a file, returning inline data (base64 for images,
+ * extracted text for documents/text files).
  *
  * @body multipart form-data with 'file' field
- * @returns {Types.FileExtractResponse} - extracted text content
+ * @returns {Types.ChatMessageFile} - inline file data
  */
 router.post('/extract', requireAuth, upload.single('file'), async (
     multerReq,
-    res: Response<Types.FileExtractResponse | Types.ErrorResponse>
+    res: Response<ChatMessageFile | ErrorResponse>
 ) => {
-    const req = multerReq as unknown as Types.TypedRequest<{}, {}, {}>;
+    const req = multerReq as unknown as TypedRequest<{}, {}, {}>;
 
-    if (!req.file) return res.status(400).json({ detail: 'File required' });
+    if (!req.file)
+        return res.status(400).json({ detail: 'File required' });
 
-    if (!validateFileExtension(req.file.originalname)) return res.status(400).json({
-        detail: 'File type not allowed'
-    });
-
-    const content = await extractTextContent(req.file.buffer, req.file.mimetype);
-
-    if (content === undefined) {
-        return res.status(400).json({ detail: 'Content extraction not supported for this file type' });
-    }
-
-    return res.json({ content });
-});
-
-/* -------------------- FILE RETRIEVAL BY ID -------------------- */
-
-/**
- * GET /api/v1/files/:file_id
- * Access Control: User owns or has read access to file
- *
- * Get file metadata by ID.
- *
- * @param {Types.FileIdParams} - path parameters with file ID
- * @returns {Types.FileModelResponse} - file metadata
- */
-router.get('/:fileId', validateFileId, requireAuth, async (
-    req: Types.TypedRequest<Types.FileIdParams>,
-    res: Response<Types.FileModelResponse | Types.ErrorResponse>
-) => {
-    const { fileId } = req.params;
-    const userId = req.user!.id;
+    const filename = req.file.originalname;
+    const mimeType = req.file.mimetype;
+    const buffer = req.file.buffer;
 
     try {
-        const file = await Files.getFileById(fileId, db);
-        if (!file) throw NotFoundError('File not found');
+        const file = await classify(filename, mimeType, buffer);
+        
+        if (file === null)
+            return res.status(400).json({ detail: 'Unsupported file type' });
 
-        const hasAccess = await Files.hasFileAccess(fileId, userId, 'read', db);
-        if (!hasAccess) throw UnauthorizedError('User does not have access to file');
-
-        const { path: _, accessControl: __, ...fileResponse } = file;
-        return res.json(fileResponse);
+        return res.json(file);
     } catch (error) {
-        if (error instanceof HttpError) {
-            return res.status(error.statusCode).json({ detail: error.message });
-        }
-
-        if (error instanceof Error) {
-            return res.status(400).json({ detail: error.message });
-        }
-
-        console.error('Get file by id error:', error);
-        return res.status(500).json({ detail: 'Internal server error' });
-    }
-});
-
-/* -------------------- FILE CONTENT RETRIEVAL -------------------- */
-
-/**
- * GET /api/v1/files/:file_id/content
- * Access Control: Read access required
- *
- * Download file content directly.
- *
- * @param {Types.FileIdParams} - path parameters with file ID
- * @query {Types.FileContentQuery} - attachment query parameter
- * @returns File content with appropriate headers
- */
-router.get('/:fileId/content', validateFileId, requireAuth, async (
-    req: Types.TypedRequest<Types.FileIdParams, any, Types.FileContentQuery>,
-    res: Response
-) => {
-    const query = Types.FileContentQuerySchema.safeParse(req.query);
-    if (!query.success) {
-        return res.status(400).json({
-            detail: 'Invalid query parameters',
-            errors: query.error.issues
-        });
-    }
-
-    const { fileId } = req.params;
-    const userId = req.user!.id;
-    const { attachment } = query.data;
-
-    try {
-        const file = await Files.getFileById(fileId, db);
-        if (!file) throw NotFoundError('File not found');
-
-        const hasReadAccess = await Files.hasFileAccess(fileId, userId, 'read', db);
-        if (!hasReadAccess) throw UnauthorizedError('User does not have access to file');
-
-        if (!file.path) throw NotFoundError('File not found');
-
-        const fileBuffer = await StorageProvider.downloadFile(file.path);
-
-        const contentType = file.meta?.contentType || 'application/octet-stream';
-        res.setHeader('Content-Type', contentType);
-
-        const isPDF = contentType === 'application/pdf';
-        const disposition = (isPDF && !attachment) ? 'inline' : 'attachment';
-        const encodedFilename = encodeURIComponent(file.filename);
-        res.setHeader(
-            'Content-Disposition',
-            `${disposition}; filename="${file.filename}"; filename*=UTF-8''${encodedFilename}`
-        );
-
-        return res.status(200).send(fileBuffer);
-    } catch (error) {
-        if (error instanceof HttpError) {
-            return res.status(error.statusCode).json({ detail: error.message });
-        }
-
-        if (error instanceof Error) {
-            return res.status(400).json({ detail: error.message });
-        }
-
-        console.error('Get file content error:', error);
-        return res.status(500).json({ detail: 'Internal server error' });
+        console.error('File extraction error:', error);
+        return res.status(500).json({ detail: 'File extraction failed' });
     }
 });
 

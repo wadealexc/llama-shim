@@ -5,8 +5,8 @@ import { createClient } from '@libsql/client';
 import { migrate } from 'drizzle-orm/libsql/migrator';
 
 import * as JWT from '../src/routes/jwt.js';
-import { Users, Auths, Files, Chats, Folders, schema, databasePath, db, currentUnixTimestamp } from '../src/db/index.js';
-import type { FileMeta, FileData, ChatObject, FolderMeta, FolderData } from '../src/routes/types/index.js';
+import { Users, Auths, Chats, Folders, schema, databasePath, db, currentUnixTimestamp } from '../src/db/index.js';
+import type { ChatObject, FolderMeta, FolderData } from '../src/routes/types/index.js';
 import type { UserRole } from '../src/routes/types/index.js';
 
 /**
@@ -81,28 +81,6 @@ export async function createUserWithToken(role: UserRole = 'user'): Promise<{
         userId: user.id, 
         token,
         user,
-    };
-}
-
-/**
- * Creates a minimal FileForm for testing.
- */
-export function createTestFileForm(
-    userId: string,
-    filename: string = 'test-file.pdf',
-    meta?: FileMeta,
-    data: FileData = { },
-): Files.NewFile {
-    return {
-        userId: userId,
-        filename: filename,
-        path: `${crypto.randomUUID()}_${filename}`,
-        meta: meta || {
-            name: filename,
-            contentType: '',
-            size: 0,
-        },
-        data: data,
     };
 }
 

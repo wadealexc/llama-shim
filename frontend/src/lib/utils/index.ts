@@ -301,6 +301,43 @@ export const getLineCount = (text: string): number => {
     return text ? text.split('\n').length : 0;
 };
 
+/**
+ * Memoize a base64 data URL as a blob: URL.
+ *
+ * Storing a multi-MB data URL in an `<img src>` keeps the entire base64
+ * string in the DOM. Converting it once to a blob: URL means the DOM holds
+ * only a short identifier and the bytes live in browser-managed blob
+ * storage. Repeated calls with the same data URL return the cached blob
+ * URL — important so reactive re-renders don't churn through atob+Blob.
+ *
+ * Blob URLs are not revoked here; they're released when the page unloads.
+ */
+const dataUrlToBlobUrlCache = new Map<string, string>();
+export function dataUrlToBlobUrl(dataUrl: string): string {
+    const cached = dataUrlToBlobUrlCache.get(dataUrl);
+    if (cached) return cached;
+
+    const commaIdx = dataUrl.indexOf(',');
+    if (commaIdx < 0 || !dataUrl.startsWith('data:')) {
+        // Not a data URL; pass through unchanged.
+        return dataUrl;
+    }
+
+    const header = dataUrl.slice(5, commaIdx);
+    const base64 = dataUrl.slice(commaIdx + 1);
+    const mime = header.split(';')[0] || 'application/octet-stream';
+
+    const binaryString = atob(base64);
+    const bytes = new Uint8Array(binaryString.length);
+    for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+    }
+
+    const url = URL.createObjectURL(new Blob([bytes], { type: mime }));
+    dataUrlToBlobUrlCache.set(dataUrl, url);
+    return url;
+}
+
 export const convertHeicToJpeg = async (file: File): Promise<Blob | Blob[] | File> => {
     const { default: heic2any } = await import('heic2any');
     try {

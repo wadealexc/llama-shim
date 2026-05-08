@@ -31,15 +31,10 @@ export type FolderId = z.infer<typeof FolderIdSchema>;
 export const MessageIdSchema = z.uuidv4();
 export type MessageId = z.infer<typeof MessageIdSchema>;
 
-// File ID schema (UUID v4 format)
-export const FileIdSchema = z.uuidv4();
-export type FileId = z.infer<typeof FileIdSchema>;
-
 // Path parameter types
 export type ChatIdParams = { id: ChatId };
 export type UserIdParams = { userId: UserId };
 export type FolderIdParams = { folderId: FolderId };
-export type FileIdParams = { fileId: FileId };
 export type ShareIdParams = { shareId: ShareId };
 export type MessageIdParams = { id: ChatId; messageId: MessageId };
 

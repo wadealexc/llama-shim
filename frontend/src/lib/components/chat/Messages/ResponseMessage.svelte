@@ -12,7 +12,7 @@
         ContentBlock
     } from '@backend/routes/types';
 
-    import { copyToClipboard as _copyToClipboard, sanitizeResponseContent } from '$lib/utils';
+    import { copyToClipboard as _copyToClipboard, dataUrlToBlobUrl, sanitizeResponseContent } from '$lib/utils';
     import type { WebSearchProgress, LoadWebpageProgress } from '$lib/apis/completions';
 
     import Name from './ResponseMessage/Name.svelte';
@@ -211,12 +211,12 @@
             <div>
                 <div class="chat-{message.role} w-full min-w-full markdown-prose">
                     <div>
-                        {#if message.files.filter((f) => f.type === 'image').length > 0}
+                        {#if message.files.filter((f) => f.kind === 'image').length > 0}
                             <div class="my-1 w-full flex overflow-x-auto gap-2 flex-wrap">
                                 {#each message.files as file}
                                     <div>
-                                        {#if file.type === 'image' || (file?.contentType ?? '').startsWith('image/')}
-                                            <Image src={file.url} alt={message.content} />
+                                        {#if file.kind === 'image'}
+                                            <Image src={dataUrlToBlobUrl(file.dataUrl)} alt={message.content} />
                                         {:else}
                                             <FileItem item={file} small={true} />
                                         {/if}

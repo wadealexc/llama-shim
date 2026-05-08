@@ -13,10 +13,8 @@
         temporaryChatEnabled
     } from '$lib/stores';
 
-    import { convertHeicToJpeg } from '$lib/utils';
-    import { uploadFile, extractFileContent } from '$lib/apis/files';
-
-    import { API_BASE_URL } from '$lib/constants';
+    import { convertHeicToJpeg, dataUrlToBlobUrl } from '$lib/utils';
+    import { extractFile } from '$lib/apis/files';
 
     import InputMenu from './MessageInput/InputMenu.svelte';
     import FilesOverlay from './MessageInput/FilesOverlay.svelte';
@@ -31,12 +29,11 @@
     import AdjustmentsHorizontal from '../icons/AdjustmentsHorizontal.svelte';
     import Clip from '../icons/Clip.svelte';
 
-    import type { ChatHistory } from '@backend/routes/types';
-    import type { InputFileItem } from '$lib/types';
+    import type { ChatHistory, ChatMessageFile } from '@backend/routes/types';
 
     export let onChange: (data: {
         prompt: string;
-        files: InputFileItem[];
+        files: ChatMessageFile[];
         webSearchEnabled: boolean;
     }) => void = () => {};
 
@@ -49,24 +46,23 @@
     export let history: ChatHistory;
 
     export let prompt = '';
-    export let files: InputFileItem[] = [];
+    export let files: ChatMessageFile[] = [];
 
     export let webSearchEnabled = false;
     export let systemPromptVisible = false;
 
+    type PendingFile = { id: string; name: string; size: number };
+    let pendingFiles: PendingFile[] = [];
+
+    $: extractingFiles = pendingFiles.length > 0;
+
     $: onChange({
         prompt,
-        files: files
-            .filter((file) => file.type !== 'image')
-            .map((file) => {
-                return {
-                    ...file,
-                    user: undefined,
-                    access_control: undefined
-                };
-            }),
+        files: files.filter((file) => file.kind !== 'image'),
         webSearchEnabled
     });
+
+    $: submitDisabled = (prompt === '' && files.length === 0) || extractingFiles;
 
     export const setText = async (text?: string): Promise<void> => {
         const chatInput = document.getElementById('chat-input');
@@ -112,10 +108,10 @@
     let inputFiles: FileList | undefined;
 
     let dragged = false;
-    let shiftKey = false;
 
     export let placeholder = '';
 
+    // TODO - we don't need this.
     const screenCaptureHandler = async (): Promise<void> => {
         try {
             const mediaStream = await navigator.mediaDevices.getDisplayMedia({
@@ -147,97 +143,27 @@
         }
     };
 
-    const uploadFileHandler = async (file: File): Promise<void> => {
-        const tempItemId = crypto.randomUUID();
-        const fileItem: InputFileItem = {
-            type: 'file',
-            id: tempItemId,
-            url: '',
-            name: file.name,
-            contentType: '',
-            size: file.size,
-            status: 'uploading',
-            itemId: tempItemId
-        };
+    const inputFilesHandler = async (inputFiles: File[]): Promise<void> => {
+        for (const file of inputFiles) {
+            if (file.size === 0) {
+                toast.error('File is empty, skipping.');
+                continue;
+            }
 
-        if (file.size === 0) {
-            toast.error('You cannot upload an empty file.');
-            return;
-        }
+            const pendingId = crypto.randomUUID();
+            pendingFiles = [...pendingFiles, { id: pendingId, name: file.name, size: file.size }];
 
-        files = [...files, fileItem];
-
-        if (!$temporaryChatEnabled) {
             try {
-                const uploaded = await uploadFile(localStorage.token, file);
-
-                fileItem.status = 'uploaded';
-                fileItem.id = uploaded.id;
-                fileItem.url = uploaded.id;
-                fileItem.name = uploaded.filename;
-                fileItem.contentType = uploaded.meta.contentType;
-                fileItem.size = uploaded.meta.size;
-                fileItem.content = uploaded.data?.content;
-                fileItem.file = uploaded;
-
-                files = files;
+                const converted = file.type === 'image/heic' ? await convertHeicToJpeg(file) : file;
+                const processedFile = Array.isArray(converted) ? converted[0]! : converted;
+                const extracted = await extractFile(localStorage.token, processedFile as File);
+                files = [...files, extracted];
             } catch (e) {
                 toast.error(`${e}`);
-                files = files.filter((f) => f.itemId !== tempItemId);
-            }
-        } else {
-            const content = await extractFileContent(localStorage.token, file).catch((error) => {
-                toast.error(`Failed to extract content from the file: ${error}`);
-                return null;
-            });
-
-            if (content === null) {
-                files = files.filter((f) => f.itemId !== tempItemId);
-            } else {
-                fileItem.status = 'uploaded';
-                fileItem.type = 'text';
-                fileItem.content = content;
-                files = files;
+            } finally {
+                pendingFiles = pendingFiles.filter((p) => p.id !== pendingId);
             }
         }
-    };
-
-    const inputFilesHandler = async (inputFiles: File[]): Promise<void> => {
-        inputFiles.forEach(async (file: File) => {
-            if (file.type.startsWith('image/')) {
-                let reader = new FileReader();
-
-                reader.onload = async (event) => {
-                    const imageUrl = event.target?.result;
-                    if (typeof imageUrl !== 'string') return;
-
-                    if ($temporaryChatEnabled) {
-                        files = [
-                            ...files,
-                            {
-                                type: 'image',
-                                id: crypto.randomUUID(),
-                                url: imageUrl,
-                                name: file.name,
-                                contentType: file.type,
-                                size: file.size
-                            }
-                        ];
-                    } else {
-                        const blob = await (await fetch(imageUrl)).blob();
-                        const compressedFile = new File([blob], file.name, { type: file.type });
-
-                        uploadFileHandler(compressedFile);
-                    }
-                };
-
-                const readTarget =
-                    file.type === 'image/heic' ? await convertHeicToJpeg(file) : file;
-                reader.readAsDataURL(Array.isArray(readTarget) ? readTarget[0] : readTarget);
-            } else {
-                uploadFileHandler(file);
-            }
-        });
     };
 
     const onDragOver = (e: DragEvent): void => {
@@ -269,18 +195,8 @@
     };
 
     const onKeyDown = (e: KeyboardEvent): void => {
-        if (e.key === 'Shift') {
-            shiftKey = true;
-        }
-
         if (e.key === 'Escape') {
             dragged = false;
-        }
-    };
-
-    const onKeyUp = (e: KeyboardEvent): void => {
-        if (e.key === 'Shift') {
-            shiftKey = false;
         }
     };
 
@@ -291,7 +207,6 @@
         }, 0);
 
         window.addEventListener('keydown', onKeyDown);
-        window.addEventListener('keyup', onKeyUp);
 
         await tick();
 
@@ -309,7 +224,6 @@
 
     onDestroy(() => {
         window.removeEventListener('keydown', onKeyDown);
-        window.removeEventListener('keyup', onKeyUp);
 
         const dropzoneElement = document.getElementById('chat-container');
 
@@ -400,20 +314,15 @@
                             }
                         }}
                     >
-                        {#if files.length > 0}
+                        {#if files.length > 0 || pendingFiles.length > 0}
                             <div class="mx-2 mt-2.5 pb-1.5 flex items-center flex-wrap gap-2">
                                 {#each files as file, fileIdx}
-                                    {#if file.type === 'image' || file.contentType.startsWith('image/')}
-                                        {@const fileUrl =
-                                            file.url.startsWith('data') ||
-                                            file.url.startsWith('http')
-                                                ? file.url
-                                                : `${API_BASE_URL}/files/${file.url}/content`}
+                                    {#if file.kind === 'image'}
                                         <div class=" relative group">
                                             <div class="relative flex items-center">
                                                 <Image
-                                                    src={fileUrl}
-                                                    alt=""
+                                                    src={dataUrlToBlobUrl(file.dataUrl)}
+                                                    alt={file.name}
                                                     imageClassName=" size-10 rounded-xl object-cover"
                                                 />
                                             </div>
@@ -444,11 +353,8 @@
                                     {:else}
                                         <FileItem
                                             item={file}
-                                            loading={file.status === 'uploading'}
                                             dismissible={true}
-                                            edit={true}
                                             small={true}
-                                            modal={['file', 'collection'].includes(file.type)}
                                             on:dismiss={async () => {
                                                 // Remove from UI state
                                                 files.splice(fileIdx, 1);
@@ -457,6 +363,26 @@
                                             on:click={() => {}}
                                         />
                                     {/if}
+                                {/each}
+                                {#each pendingFiles as pending, idx}
+                                    <FileItem
+                                        item={{
+                                            kind: 'text',
+                                            name: pending.name,
+                                            size: pending.size,
+                                            contentType: 'application/octet-stream',
+                                            content: ''
+                                        }}
+                                        loading={true}
+                                        dismissible={true}
+                                        small={true}
+                                        on:dismiss={async () => {
+                                            pendingFiles = pendingFiles.filter(
+                                                (p) => p.id !== pending.id
+                                            );
+                                        }}
+                                        on:click={() => {}}
+                                    />
                                 {/each}
                             </div>
                         {/if}
@@ -540,7 +466,7 @@
 
                                             if (enterPressed) {
                                                 e.preventDefault();
-                                                if (prompt !== '' || files.length > 0) {
+                                                if (!submitDisabled) {
                                                     dispatch('submit', prompt);
                                                 }
                                             }
@@ -680,12 +606,12 @@
                                         <Tooltip content="Send message">
                                             <button
                                                 id="send-message-button"
-                                                class="{!(prompt === '' && files.length === 0)
+                                                class="{!submitDisabled
                                                     ? 'bg-cyan-600 text-white hover:bg-cyan-500 dark:bg-cyan-600 dark:text-white dark:hover:bg-cyan-500 '
                                                     : 'text-white bg-gray-200 dark:text-gray-900 dark:bg-gray-700 disabled'} transition rounded-lg px-4 py-1.5 self-center"
                                                 aria-label="Send message"
                                                 type="submit"
-                                                disabled={prompt === '' && files.length === 0}
+                                                disabled={submitDisabled}
                                             >
                                                 <svg
                                                     xmlns="http://www.w3.org/2000/svg"

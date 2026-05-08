@@ -1,11 +1,10 @@
 import { eq, desc, asc, and, like, inArray, isNull, isNotNull, SQL } from 'drizzle-orm';
 
 import { db, type DbOrTx } from '../client.js';
-import { chats, chatFiles } from '../schema.js';
+import { chats } from '../schema.js';
 import { currentUnixTimestamp } from '../utils.js';
 import type { ChatImportForm, ChatObject } from '../../routes/types/index.js';
 import { DatabaseError, RecordCreationError, RecordNotFoundError, ValidationError } from '../errors.js';
-import * as Files from './files.js';
 
 const TABLE = 'chat';
 
@@ -318,127 +317,6 @@ export async function getChatsByUserIdAndSearchText(
         .orderBy(desc(chats.updatedAt))
         .limit(limit ?? 999999)
         .offset(skip ?? 0);
-}
-
-/* -------------------- CRUD - CHAT FILES -------------------- */
-
-export type ChatFile = typeof chatFiles.$inferSelect;
-
-/**
- * Associate files with a chat (or a message within a chat).
- * Creates chatFiles records for each association.
- * @note Users can only associate files with a chat if they own the file.
- * 
- * @param chatId
- * @param messageId
- * @param fileIds
- * @param userId
- * @param txOrDb
- * 
- * @returns a list of all the files associated with `chatId`
- * 
- * @throws if the user does not have ownership a file
- */
-export async function insertChatFiles(
-    chatId: string,
-    messageId: string | null,
-    fileIds: string[],
-    userId: string,
-    txOrDb: DbOrTx = db
-): Promise<ChatFile[]> {
-    const now = currentUnixTimestamp();
-
-    // Verify the user owns each file
-    const files = await Files.getFilesByIds(fileIds, txOrDb);
-    if (files.some(f => f.userId !== userId)) 
-        throw new ValidationError(`user does not own requested files`);
-
-    // Check if the chat is already associated with any of the provided files
-    const existing = await txOrDb
-        .select()
-        .from(chatFiles)
-        .where(and(
-            eq(chatFiles.chatId, chatId),
-            inArray(chatFiles.fileId, fileIds)
-        ));
-
-    // Filter out existing associations
-    const existingFileIds = new Set(existing.map((cf: ChatFile) => cf.fileId));
-    const newFileIds = fileIds.filter(id => !existingFileIds.has(id));
-
-    if (newFileIds.length === 0) return existing;
-
-    // Insert new associations
-    const inserted = await txOrDb
-        .insert(chatFiles)
-        .values(newFileIds.map(fileId => ({
-            id: crypto.randomUUID(),
-            userId: userId,
-            chatId: chatId,
-            messageId: messageId,
-            fileId: fileId,
-            createdAt: now,
-            updatedAt: now,
-        })))
-        .returning();
-
-    return [...existing, ...inserted];
-}
-
-/**
- * Retrieves files associated with a specific message in a chat.
- * Results are returned, sorted by createdAt ascending.
- * 
- * @param chatId
- * @param messageId
- * @param txOrDb
- * 
- * @returns the files associated with the chat message, sorted by createdAt ascending.
- */
-export async function getChatFiles(
-    chatId: string,
-    messageId: string,
-    txOrDb: DbOrTx = db
-): Promise<ChatFile[]> {
-    return await txOrDb
-        .select()
-        .from(chatFiles)
-        .where(and(
-            eq(chatFiles.chatId, chatId),
-            eq(chatFiles.messageId, messageId)
-        ))
-        .orderBy(asc(chatFiles.createdAt));
-}
-
-/**
- * Retrieves all shared chats that are associated with a specific file
- * 
- * @param fileId
- * @param txOrDb
- * 
- * @returns A list of shared chats that have a given file id attached
- */
-export async function getSharedChatsByFileId(
-    fileId: string,
-    txOrDb: DbOrTx = db
-): Promise<Chat[]> {
-    // Get all chatIds that use this file
-    const chatFileRecords = await txOrDb
-        .select({ chatId: chatFiles.chatId })
-        .from(chatFiles)
-        .where(eq(chatFiles.fileId, fileId));
-
-    const chatIds = chatFileRecords.map(cf => cf.chatId);
-    if (chatIds.length === 0) return [];
-
-    // Get all chats that are shared (have shareId) from those chatIds
-    return await txOrDb
-        .select()
-        .from(chats)
-        .where(and(
-            inArray(chats.id, chatIds),
-            isNotNull(chats.shareId)
-        ));
 }
 
 /* -------------------- CRUD - SHARING -------------------- */

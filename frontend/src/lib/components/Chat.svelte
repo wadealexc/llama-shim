@@ -567,16 +567,6 @@
             return;
         }
 
-        if (
-            files.length > 0 &&
-            files.filter((file) => file.type !== 'image' && file.status === 'uploading').length > 0
-        ) {
-            toast.error(
-                `Oops! There are files still uploading. Please wait for the upload to complete.`
-            );
-            return;
-        }
-
         if (history.currentId) {
             const lastMessage = history.messages[history.currentId];
             if (lastMessage.done != true) {

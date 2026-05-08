@@ -23,16 +23,23 @@ export type FolderChatListItemResponse = z.infer<typeof FolderChatListItemRespon
 
 /* -------------------- CHAT DATA STRUCTURES -------------------- */
 
-// Chat message file attachment
-export const ChatMessageFileSchema = z.object({
-    id: z.string(),
-    type: z.string(),
-    name: z.string(),
-    url: z.string(),
-    contentType: z.string(),
-    size: z.number(),
-    content: z.string().optional(),
-}).passthrough();
+// Chat message file attachment (inline data model)
+export const ChatMessageFileSchema = z.discriminatedUnion('kind', [
+    z.object({
+        kind: z.literal('image'),
+        name: z.string().min(1),
+        size: z.number().int().nonnegative(),
+        contentType: z.string().min(1),
+        dataUrl: z.string().regex(/^data:[\w.+-]+\/[\w.+-]+;base64,/),
+    }),
+    z.object({
+        kind: z.literal('text'),
+        name: z.string().min(1),
+        size: z.number().int().nonnegative(),
+        contentType: z.string().min(1),
+        content: z.string(),
+    }),
+]);
 export type ChatMessageFile = z.infer<typeof ChatMessageFileSchema>;
 
 // Chat message citation/source

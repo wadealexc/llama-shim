@@ -3,11 +3,9 @@
     import { toast } from 'svelte-sonner';
     import { tick } from 'svelte';
     import { user as _user, editScrollPosition } from '$lib/stores';
-    import { copyToClipboard as _copyToClipboard, formatDate } from '$lib/utils';
-    import { API_BASE_URL } from '$lib/constants';
+    import { copyToClipboard as _copyToClipboard, dataUrlToBlobUrl, formatDate } from '$lib/utils';
     import type { ChatHistory, ChatMessage, ChatMessageFile } from '@backend/routes/types';
 
-    import Tooltip from '$lib/components/common/Tooltip.svelte';
     import FileItem from './FileItem.svelte';
     import Markdown from './Markdown.svelte';
     import Image from '$lib/components/common/Image.svelte';
@@ -47,15 +45,11 @@
     let message: ChatMessage = structuredClone(history.messages[messageId]);
     $: if (history.messages) {
         const current = history.messages[messageId];
-        if (current) {
-            if (
-                message.content !== current.content ||
-                message.files?.length !== current.files?.length
-            ) {
-                message = structuredClone(current);
-            } else if (JSON.stringify(message) !== JSON.stringify(current)) {
-                message = structuredClone(current);
-            }
+        if (current && (
+            message.content !== current.content ||
+            message.files?.length !== current.files?.length
+        )) {
+            message = structuredClone(current);
         }
     }
 
@@ -129,13 +123,9 @@
                         class="mb-1 w-full flex flex-col justify-end overflow-x-auto gap-1 flex-wrap"
                     >
                         {#each message.files as file}
-                            {@const fileUrl =
-                                file.url.startsWith('data') || file.url.startsWith('http')
-                                    ? file.url
-                                    : `${API_BASE_URL}/files/${file.url}${file.contentType ? '/content' : ''}`}
                             <div class="self-end">
-                                {#if file.type === 'image' || (file?.contentType ?? '').startsWith('image/')}
-                                    <Image src={fileUrl} imageClassName=" max-h-96 rounded-lg" />
+                                {#if file.kind === 'image'}
+                                    <Image src={dataUrlToBlobUrl(file.dataUrl)} imageClassName=" max-h-96 rounded-lg" />
                                 {:else}
                                     <FileItem item={file} small={true} />
                                 {/if}
@@ -161,16 +151,11 @@
                         {#if editedFiles.length > 0}
                             <div class="flex items-center flex-wrap gap-2 -mx-2 mb-1">
                                 {#each editedFiles as file, fileIdx}
-                                    {#if file.type === 'image' || (file?.contentType ?? '').startsWith('image/')}
-                                        {@const fileUrl =
-                                            file.url?.startsWith('data') ||
-                                            file.url?.startsWith('http')
-                                                ? file.url
-                                                : `${API_BASE_URL}/files/${file.url}${file?.contentType ? '/content' : ''}`}
+                                    {#if file.kind === 'image'}
                                         <div class=" relative group">
                                             <div class="relative flex items-center">
                                                 <Image
-                                                    src={fileUrl}
+                                                    src={dataUrlToBlobUrl(file.dataUrl)}
                                                     alt="input"
                                                     imageClassName=" size-14 rounded-xl object-cover"
                                                 />
@@ -202,9 +187,7 @@
                                     {:else}
                                         <FileItem
                                             item={file}
-                                            loading={file.status === 'uploading'}
                                             dismissible={true}
-                                            edit={true}
                                             on:dismiss={() => {
                                                 editedFiles = editedFiles.filter(
                                                     (_, i) => i !== fileIdx

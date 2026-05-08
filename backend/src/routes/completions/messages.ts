@@ -1,6 +1,5 @@
-import { db, Files, Folders } from '../../db/index.js';
 import type { Model } from '../../db/index.js';
-import { StorageProvider } from '../../storage/provider.js';
+import { db, Folders } from '../../db/index.js';
 import * as proto from '../../protocol/index.js';
 import type * as Types from '../types/index.js';
 
@@ -59,17 +58,17 @@ export function applyPromptVariables(
  *   2. Walks the parentId chain to get a linear message list (root → user message)
  *   3. Prepends the system message
  *   4. Converts each history message to OAI format inline:
- *      - User: handles file attachments (images resolved to base64, text files as text parts)
+ *      - User: handles file attachments (images as base64 data URLs, text as text parts)
  *      - Assistant: expands MessageBlocks to assistant + tool messages
  *
  * @param history - The chat history tree
  * @param systemPrompt - The resolved, variable-applied system prompt
  * @returns Ordered OAI message array ready for the completion request
  */
-export async function buildOAIMessages(
+export function buildOAIMessages(
     history: Types.ChatHistory,
     systemPrompt: string,
-): Promise<proto.Message[]> {
+): proto.Message[] {
     // Derive the user message from the assistant placeholder's parentId
     const assistantPlaceholderId = history.currentId;
     if (!assistantPlaceholderId) {
@@ -92,7 +91,7 @@ export async function buildOAIMessages(
         } else if (message.role === 'assistant') {
             oaiMessages.push(...expandMessageBlocks(message));
         } else {
-            oaiMessages.push(...await buildUserMessage(message));
+            oaiMessages.push(...buildUserMessage(message));
         }
     }
 
@@ -214,72 +213,24 @@ function expandMessageBlocks(
 }
 
 /**
- * Converts a user ChatMessage to OAI user message(s), resolving image file IDs
- * to base64 data URLs inline and encoding text file attachments as text parts.
+ * Converts a user ChatMessage to OAI user message(s), using inline file data.
+ * Images use dataUrl directly; text files use content directly.
  */
-async function buildUserMessage(message: Types.ChatMessage): Promise<proto.UserMessage[]> {
-    const imageFiles = message.files.filter(
-        (file) => file.type === 'image' || file.contentType.startsWith('image/')
-    );
-    const textFiles = message.files.filter(
-        (file) =>
-            file.type !== 'image' &&
-            !file.contentType.startsWith('image/') &&
-            file.content
-    );
+function buildUserMessage(message: Types.ChatMessage): proto.UserMessage[] {
+    const imageParts: proto.ContentPart[] = message.files
+        .filter((f): f is Extract<Types.ChatMessageFile, { kind: 'image' }> => f.kind === 'image')
+        .map(f => ({ type: 'image_url', image_url: { url: f.dataUrl } }));
 
-    if (imageFiles.length === 0 && textFiles.length === 0) {
+    const textParts: proto.ContentPart[] = message.files
+        .filter((f): f is Extract<Types.ChatMessageFile, { kind: 'text' }> => f.kind === 'text')
+        .map(f => ({ type: 'text', text: `[File: ${f.name}]\n${f.content}` }));
+
+    if (imageParts.length === 0 && textParts.length === 0) {
         return [{ role: 'user', content: message.content }];
     }
 
-    const imageParts: proto.ContentPart[] = await Promise.all(
-        imageFiles.map(file => resolveImageFilePart(file.url))
-    );
-
-    const textFileParts: proto.ContentPart[] = textFiles.map((file) => ({
-        type: 'text' as const,
-        text: `[File: ${file.name}]\n${file.content}`,
-    }));
-
     return [{
         role: 'user',
-        content: [
-            { type: 'text', text: message.content },
-            ...imageParts,
-            ...textFileParts,
-        ],
+        content: [{ type: 'text', text: message.content }, ...imageParts, ...textParts],
     }];
-}
-
-/**
- * Resolves a single image file URL to an OAI image content part.
- *
- * If the URL is already a data: or http(s): URL it is used directly.
- * Otherwise it is treated as a file ID and resolved to a base64 data URL.
- * Falls back to a text placeholder if the file cannot be found.
- */
-async function resolveImageFilePart(url: string): Promise<proto.ContentPart> {
-    if (
-        url.startsWith('data:') ||
-        url.startsWith('http://') ||
-        url.startsWith('https://')
-    ) {
-        return { type: 'image_url', image_url: { url } };
-    }
-
-    // Treat as file ID
-    const file = await Files.getFileById(url, db);
-    if (!file || !file.path) {
-        console.warn(`[buildOAIMessages] file not found for id: ${url}`);
-        return { type: 'text', text: '[image unavailable]' };
-    }
-
-    const buffer = await StorageProvider.downloadFile(file.path);
-    const contentType = file.meta?.contentType ?? 'image/png';
-    const base64 = buffer.toString('base64');
-
-    return {
-        type: 'image_url',
-        image_url: { url: `data:${contentType};base64,${base64}` },
-    };
 }

@@ -75,7 +75,7 @@ export async function prepareRequest(
     const systemPrompt = applyPromptVariables(systemPromptTemplate, promptVariables);
 
     // Build OAI message array from history
-    const oaiMessages = await buildOAIMessages(chat.history, systemPrompt);
+    const oaiMessages = buildOAIMessages(chat.history, systemPrompt);
 
     let completionBody: proto.CompletionRequest = {
         model: resolvedModel,
@@ -90,7 +90,7 @@ export async function prepareRequest(
         { webSearchEnabled: chat.webSearchEnabled ?? false },
     );
 
-    // For non-local chats: create chat in DB if it doesn't exist, and insert file associations
+    // For non-local chats: create chat in DB if it doesn't exist
     if (!isLocalChat) {
         const existingChat = await Chats.getChatByIdAndUserId(chatId, userId, db);
         if (!existingChat) {
@@ -100,22 +100,6 @@ export async function prepareRequest(
                 chat: chat,
                 folderId: folderId ?? null,
             }, db);
-        }
-
-        if (userMessage.files.length > 0) {
-            const fileIds: string[] = userMessage.files
-                .filter((f: Types.ChatMessageFile) => f.type === 'file')
-                .map((f: Types.ChatMessageFile) => f.id)
-                .filter(Boolean);
-
-            if (fileIds.length > 0) {
-                try {
-                    await Chats.insertChatFiles(chatId, userMessage.id, fileIds, userId, db);
-                } catch (error) {
-                    console.error('Error inserting chat files:', error);
-                    // Don't fail — file associations are metadata, not critical
-                }
-            }
         }
     }
 

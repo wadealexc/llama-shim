@@ -5,7 +5,6 @@ export { db, type Db, type Tx, type DbOrTx, databasePath, libsqlClient } from '.
 export * as Auths from './operations/auths.js';
 export * as Chats from './operations/chats.js';
 export * as Configs from './operations/config.js';
-export * as Files from './operations/files.js';
 export * as Folders from './operations/folders.js';
 export * as Models from './operations/models.js';
 export * as Users from './operations/users.js';
@@ -24,6 +23,5 @@ export { DatabaseError, RecordCreationError, RecordNotFoundError, ValidationErro
 export type { Chat } from './operations/chats.js';
 export type { Config } from './operations/config.js';
 export type { Folder } from './operations/folders.js';
-export type { File } from './operations/files.js';
 export type { Model } from './operations/models.js';
 export type { User } from './operations/users.js';

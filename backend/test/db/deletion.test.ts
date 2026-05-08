@@ -2,7 +2,7 @@ import { describe, test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
 
 import { createTestDatabase, newUserParams, TEST_PASSWORD, type TestDatabase } from '../helpers.js';
-import { Users, Auths, Chats, Folders, Files, currentUnixTimestamp, type User } from '../../src/db/index.js';
+import { Users, Auths, Chats, Folders, currentUnixTimestamp, type User } from '../../src/db/index.js';
 import type { ChatObject } from '../../src/routes/types/index.js';
 
 /* -------------------- TEST HELPERS -------------------- */
@@ -173,58 +173,6 @@ describe('Database Cascade Deletion', () => {
             assert.strictEqual(grandchildAfter, null);
         });
 
-        test('should cascade delete all files when user is deleted', async () => {
-            // Create user
-            const userParams = newUserParams('admin');
-            const user = await Users.createUser(userParams, db);
-
-            // Create multiple files
-            const file1 = await Files.createFile(
-                {
-                    userId: user.id,
-                    filename: 'document1.pdf',
-                    path: '/path/to/doc1.pdf',
-                    data: {},
-                    meta: {
-                        name: 'document1.pdf',
-                        contentType: '',
-                        size: 0,
-                    },
-                },
-                db
-            );
-            const file2 = await Files.createFile(
-                {
-                    userId: user.id,
-                    filename: 'document2.jpeg',
-                    path: '/path/to/doc2.jpeg',
-                    data: {},
-                    meta: {
-                        name: 'document2.jpeg',
-                        contentType: '',
-                        size: 0,
-                    },
-                },
-                db
-            );
-
-            // Verify files exist
-            const file1Before = await Files.getFileById(file1.id, db);
-            assert.ok(file1Before);
-            const file2Before = await Files.getFileById(file2.id, db);
-            assert.ok(file2Before);
-
-            // Delete user
-            await Users.deleteUser(user.id, db);
-
-            // Verify all files are gone
-            const file1After = await Files.getFileById(file1.id, db);
-            assert.strictEqual(file1After, null);
-
-            const file2After = await Files.getFileById(file2.id, db);
-            assert.strictEqual(file2After, null);
-        });
-
         test('should cascade delete all related data when user is deleted', async () => {
             // Create user with comprehensive data
             const userParams = newUserParams('admin');
@@ -264,22 +212,6 @@ describe('Database Cascade Deletion', () => {
                 db
             );
 
-            // Create files
-            const file = await Files.createFile(
-                {
-                    userId: user.id,
-                    filename: 'important.pdf',
-                    path: '/path/to/important.pdf',
-                    data: {},
-                    meta: {
-                        name: 'important.pdf',
-                        contentType: '',
-                        size: 0,
-                    },
-                },
-                db
-            );
-
             // Verify everything exists
             const userBefore = await Users.getUserById(user.id, db);
             assert.ok(userBefore);
@@ -292,9 +224,6 @@ describe('Database Cascade Deletion', () => {
 
             const chatsBefore = await Chats.getChatsByUserId(user.id, db);
             assert.strictEqual(chatsBefore.length, 2);
-
-            const fileBefore = await Files.getFileById(file.id, db);
-            assert.ok(fileBefore);
 
             // Delete user
             await Users.deleteUser(user.id, db);
@@ -317,9 +246,6 @@ describe('Database Cascade Deletion', () => {
 
             const chatAtRootAfter = await Chats.getChatById(chatAtRoot.id, db);
             assert.strictEqual(chatAtRootAfter, null);
-
-            const fileAfter = await Files.getFileById(file.id, db);
-            assert.strictEqual(fileAfter, null);
         });
 
         test('should not affect other users data when one user is deleted', async () => {
@@ -382,124 +308,6 @@ describe('Database Cascade Deletion', () => {
             const user2ChatAfter = await Chats.getChatById(user2Chat.id, db);
             assert.ok(user2ChatAfter);
             assert.strictEqual(user2ChatAfter.id, user2Chat.id);
-        });
-    });
-
-    describe('Chat Deletion Cascades', () => {
-        test('should cascade delete chat_file records when chat is deleted', async () => {
-            // Create user, file, and chat
-            const userParams = newUserParams('admin');
-            const user = await Users.createUser(userParams, db);
-
-            const file = await Files.createFile(
-                {
-                    userId: user.id,
-                    filename: 'document.pdf',
-                    path: '/path/to/document.pdf',
-                    data: {},
-                    meta: {
-                        name: 'document.pdf',
-                        contentType: '',
-                        size: 0,
-                    },
-                },
-                db
-            );
-
-            const chat = await Chats.createChat(
-                user.id,
-                _createNewChatForm('Test Chat'),
-                db
-            );
-            
-            // Associate file with chat
-            const chatFileRecords = await Chats.insertChatFiles(
-                chat.id,
-                'message-1',
-                [file.id],
-                user.id,
-                db
-            );
-            assert.strictEqual(chatFileRecords.length, 1);
-
-            // Verify chat_file record exists
-            const chatFilesBefore = await Chats.getChatFiles(chat.id, 'message-1', db);
-            assert.strictEqual(chatFilesBefore.length, 1);
-
-            // Delete chat
-            await Chats.deleteChat(chat.id, user.id, db);
-
-            // Verify chat is gone
-            const chatAfter = await Chats.getChatById(chat.id, db);
-            assert.strictEqual(chatAfter, null);
-
-            // Verify chat_file record is gone
-            const chatFilesAfter = await Chats.getChatFiles(chat.id, 'message-1', db);
-            assert.strictEqual(chatFilesAfter.length, 0);
-
-            // Verify file still exists (only association deleted)
-            const fileAfter = await Files.getFileById(file.id, db);
-            assert.ok(fileAfter);
-            assert.strictEqual(fileAfter.id, file.id);
-        });
-    });
-
-    describe('File Deletion Cascades', () => {
-        test('should cascade delete chat_file records when file is deleted', async () => {
-            // Create user, file, and chat
-            const userParams = newUserParams('admin');
-            const user = await Users.createUser(userParams, db);
-
-            const file = await Files.createFile(
-                {
-                    userId: user.id,
-                    filename: 'document.pdf',
-                    path: '/path/to/document.pdf',
-                    data: {},
-                    meta: {
-                        name: 'document.pdf',
-                        contentType: '',
-                        size: 0,
-                    },
-                },
-                db
-            );
-
-            const chat = await Chats.createChat(
-                user.id,
-                _createNewChatForm('Test Chat'),
-                db
-            );
-
-            // Associate file with chat
-            const chatFileRecords = await Chats.insertChatFiles(
-                chat.id,
-                'message-1',
-                [file.id],
-                user.id,
-                db
-            );
-            assert.strictEqual(chatFileRecords.length, 1);
-
-            // Verify chat_file record exists
-            const chatFilesBefore = await Chats.getChatFiles(chat.id, 'message-1', db);
-            assert.strictEqual(chatFilesBefore.length, 1);
-
-            // Delete file
-            await Files.deleteFile(file.id, db);
-
-            // Verify file is gone
-            const fileAfter = await Files.getFileById(file.id, db);
-            assert.strictEqual(fileAfter, null);
-
-            // Verify chat_file record is gone
-            const chatFilesAfter = await Chats.getChatFiles(chat.id, 'message-1', db);
-            assert.strictEqual(chatFilesAfter.length, 0);
-
-            // Verify chat still exists (only file association deleted)
-            const chatAfter = await Chats.getChatById(chat.id, db);
-            assert.ok(chatAfter);
-            assert.strictEqual(chatAfter.id, chat.id);
         });
     });
 });

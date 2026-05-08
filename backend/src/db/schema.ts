@@ -7,9 +7,6 @@ import type {
     ChatObject,
     FolderMeta,
     FolderData,
-    FileMeta,
-    FileData,
-    AccessControl,
     ModelParams,
     ModelMeta,
 } from '../routes/types/index.js';
@@ -98,38 +95,6 @@ export const chats = sqliteTable('chat', {
     index('idx_chat_folder_id_user_id').on(table.folderId, table.userId),
 ]);
 
-/* -------------------- CHAT FILE TABLE -------------------- */
-
-/**
- * The chat file table is used to associate files with specific chats,
- * mostly used to grant read permissions to files included in publicly-shared chats
- * 
- * TODO - user cascade deletion does not clean up actual uploaded files
- */
-export const chatFiles = sqliteTable('chat_file', {
-    // Identity
-    id: text('id').primaryKey().notNull(),
-    userId: text('user_id')
-        .notNull()
-        .references(() => users.id),
-    chatId: text('chat_id')
-        .notNull()
-        .references(() => chats.id, { onDelete: 'cascade' }),
-    messageId: text('message_id'),
-    fileId: text('file_id')
-        .notNull()
-        .references(() => files.id, { onDelete: 'cascade' }),
-
-    // Timestamps (unix seconds)
-    createdAt: integer('created_at').notNull(),
-    updatedAt: integer('updated_at').notNull(),
-}, (table) => [
-    uniqueIndex('idx_chat_file_chat_file').on(table.chatId, table.fileId),
-    index('idx_chat_file_chat_id').on(table.chatId),
-    index('idx_chat_file_user_id').on(table.userId),
-    index('idx_chat_file_file_id').on(table.fileId),
-]);
-
 /* -------------------- FOLDER TABLE -------------------- */
 
 /**
@@ -170,45 +135,6 @@ export const folders = sqliteTable('folder', {
     index('idx_folder_user_id_parent_id_name').on(table.userId, table.parentId, table.name),
     index('idx_folder_created_at').on(table.createdAt),
     index('idx_folder_updated_at').on(table.updatedAt),
-]);
-
-/* -------------------- FILE TABLE -------------------- */
-
-/**
- * The file table stores uploaded file metadata with processing status 
- * and content extraction results. 
- * 
- * **File content is stored on the local filesystem** (not in the database), 
- * while the database contains metadata, paths, and processing state. 
- * 
- * Files are user-scoped with granular access control. 
- * 
- * Files relate to chats through the `chat_file` junction table.
- */
-export const files = sqliteTable('file', {
-    // Identity
-    id: text('id').primaryKey().notNull(),
-    userId: text('user_id')
-        .notNull()
-        .references(() => users.id, { onDelete: 'cascade' }),
-
-    // File Info
-    filename: text('filename').notNull(),
-    path: text('path').notNull(),
-
-    // Metadata (JSON)
-    data: text('data', { mode: 'json' }).$type<FileData>().notNull(),
-    meta: text('meta', { mode: 'json' }).$type<FileMeta>().notNull(),
-    accessControl: text('access_control', { mode: 'json' }).$type<AccessControl>().notNull(),
-
-    // Timestamps (unix seconds)
-    createdAt: integer('created_at').notNull(),
-    updatedAt: integer('updated_at').notNull(),
-}, (table) => [
-    uniqueIndex('idx_file_id').on(table.id),
-    index('idx_file_user_id').on(table.userId),
-    index('idx_file_created_at').on(table.createdAt),
-    index('idx_file_updated_at').on(table.updatedAt),
 ]);
 
 /* -------------------- MODEL TABLE -------------------- */

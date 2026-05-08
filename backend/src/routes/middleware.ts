@@ -214,29 +214,6 @@ export const validateFolderId = <P extends { folderId: Types.FolderId }>(
 };
 
 /**
- * File ID validation middleware for :fileId parameter.
- * Validates file ID format (UUID v4).
- * If validation fails, skip to next route with next('route').
- *
- * Generic constraint allows this to work with any params type that includes fileId.
- *
- * @returns next('route') if validation fails (skips to next route)
- */
-export const validateFileId = <P extends { fileId: Types.FileId }>(
-    req: TypedRequest<P>,
-    res: Response,
-    next: NextFunction
-): void => {
-    const parsed = Types.FileIdSchema.safeParse(req.params.fileId);
-
-    if (!parsed.success) {
-        return next('route'); // Skip to next route
-    }
-
-    next();
-};
-
-/**
  * Combined Chat ID and Message ID validation middleware for routes like :id/messages/:messageId.
  * Validates both chat ID format (UUID v4 OR "local:<socket_id>") and message ID format (UUID v4).
  * If either validation fails, skip to next route with next('route').

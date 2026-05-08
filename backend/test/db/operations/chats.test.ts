@@ -1,12 +1,11 @@
 import { describe, it, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert';
-import { Chats, Users, Folders, Files, schema, currentUnixTimestamp } from '../../../src/db/index.js';
+import { Chats, Users, Folders, schema, currentUnixTimestamp } from '../../../src/db/index.js';
 import type { ChatImportForm } from '../../../src/routes/types/index.js';
 
 import { 
     createTestDatabase, 
     newUserParams, 
-    createTestFileForm, 
     createTestChatObject,
     createTestChatData,
     type TestDatabase 
@@ -505,153 +504,6 @@ describe('Chat Operations', () => {
     //         assert.strictEqual(chats.length, 0);
     //     });
     // });
-
-    /* -------------------- FILE OPERATIONS -------------------- */
-
-    describe('insertChatFiles', () => {
-        it('should associate files with chat', async () => {
-            const chat = await Chats.createChat(userId, createTestChatData('Chat'), db);
-            const file1 = await Files.createFile(createTestFileForm(userId), db);
-            const file2 = await Files.createFile(createTestFileForm(userId), db);
-
-            const cfs = await Chats.insertChatFiles(chat.id, null, [file1.id, file2.id], userId, db);
-
-            assert.ok(cfs.length == 2);
-            assert.strictEqual(cfs[0]!.fileId, file1.id);
-            assert.strictEqual(cfs[1]!.fileId, file2.id);
-        });
-
-        it('should associate files with specific message', async () => {
-            const chat = await Chats.createChat(userId, createTestChatData('Chat'), db);
-            const messageId = crypto.randomUUID();
-            const file = await Files.createFile(createTestFileForm(userId), db);
-
-            const cfs = await Chats.insertChatFiles(chat.id, messageId, [file.id], userId, db);
-
-            assert.ok(cfs.length == 1);
-            assert.strictEqual(cfs[0]!.messageId, messageId);
-        });
-
-        it('should prevent duplicate file associations', async () => {
-            const chat = await Chats.createChat(userId, createTestChatData('Chat'), db);
-            const file = await Files.createFile(createTestFileForm(userId), db);
-
-            let cfs = await Chats.insertChatFiles(chat.id, null, [file.id], userId, db);
-            assert.strictEqual(cfs.length, 1);
-            assert.strictEqual(cfs[0]!.fileId, file.id);
-
-            cfs = await Chats.insertChatFiles(chat.id, null, [file.id], userId, db);
-            // Result should be unchanged
-            assert.strictEqual(cfs.length, 1);
-            assert.strictEqual(cfs[0]!.fileId, file.id);
-        });
-
-        it('should return empty array for empty file list', async () => {
-            const chat = await Chats.createChat(userId, createTestChatData('Chat'), db);
-
-            const cfs = await Chats.insertChatFiles(chat.id, null, [], userId, db);
-            assert.strictEqual(cfs.length, 0);
-        });
-
-        it('should throw if attempting to insert a file the user does not own', async () => {
-            const otherUser = await Users.createUser(newUserParams(), db);
-            const otherUserFile = await Files.createFile(createTestFileForm(otherUser.id), db);
-            
-            const chat = await Chats.createChat(userId, createTestChatData('Chat'), db);
-
-            await assert.rejects(
-                async () => await Chats.insertChatFiles(chat.id, null, [otherUserFile.id], userId, db),
-                { message: `user does not own requested files` }
-            );
-        });
-    });
-
-    
-    describe('getChatFiles', () => {
-        it('should retrieve files for specific message', async () => {
-            const chat = await Chats.createChat(userId, createTestChatData('Chat'), db);
-            const messageId = crypto.randomUUID();
-            const file1 = await Files.createFile(createTestFileForm(userId), db);
-            const file2 = await Files.createFile(createTestFileForm(userId), db);
-
-            await Chats.insertChatFiles(chat.id, messageId, [file1.id, file2.id], userId, db);
-
-            const cfs = await Chats.getChatFiles(chat.id, messageId, db);
-            assert.ok(cfs.length == 2);
-            assert.strictEqual(cfs[0]!.fileId, file1.id);
-            assert.strictEqual(cfs[1]!.fileId, file2.id);
-        });
-
-        it('should return empty array if no files', async () => {
-            const chat = await Chats.createChat(userId, createTestChatData('Chat'), db);
-            const messageId = crypto.randomUUID();
-
-            const cfs = await Chats.getChatFiles(chat.id, messageId, db);
-            assert.strictEqual(cfs.length, 0);
-        });
-
-        it('should return files sorted by createdAt ascending', async () => {
-            const chat = await Chats.createChat(userId, createTestChatData('Chat'), db);
-            const messageId = crypto.randomUUID();
-            const file1 = await Files.createFile(createTestFileForm(userId), db);
-            const file2 = await Files.createFile(createTestFileForm(userId), db);
-
-            // Manually insert old file
-            const now = currentUnixTimestamp();
-            await db
-                .insert(schema.chatFiles)
-                .values({
-                    id: crypto.randomUUID(),
-                    userId: userId,
-                    chatId: chat.id,
-                    messageId: messageId,
-                    fileId: file1.id,
-                    createdAt: now - 1000,
-                    updatedAt: now - 1000,
-                });
-
-            await Chats.insertChatFiles(chat.id, messageId, [file2.id], userId, db);
-
-            const cfs = await Chats.getChatFiles(chat.id, messageId, db);
-            assert.ok(cfs[0]!.createdAt <= cfs[1]!.createdAt);
-        });
-    });
-
-    describe('getSharedChatsByFileId', () => {
-        it('should retrieve shared chats using specific file', async () => {
-            const chat = await Chats.createChat(userId, createTestChatData('Chat'), db);
-            const file = await Files.createFile(createTestFileForm(userId), db);
-            await Chats.insertChatFiles(chat.id, null, [file.id], userId, db);
-            await Chats.shareChat(chat.id, db);
-
-            const sharedChats = await Chats.getSharedChatsByFileId(file.id, db);
-
-            assert.ok(sharedChats.some(c => c.id === chat.id));
-        });
-
-        it('should only return chats with shareId set', async () => {
-            const chat1 = await Chats.createChat(userId, createTestChatData('Shared Chat'), db);
-            const chat2 = await Chats.createChat(userId, createTestChatData('Private Chat'), db);
-            const file = await Files.createFile(createTestFileForm(userId), db);
-
-            await Chats.insertChatFiles(chat1.id, null, [file.id], userId, db);
-            await Chats.insertChatFiles(chat2.id, null, [file.id], userId, db);
-
-            await Chats.shareChat(chat1.id, db);
-
-            const sharedChats = await Chats.getSharedChatsByFileId(file.id, db);
-
-            assert.ok(sharedChats.some(c => c.id === chat1.id));
-            assert.ok(!sharedChats.some(c => c.id === chat2.id));
-        });
-
-        it('should return empty array if file not used', async () => {
-            const file = await Files.createFile(createTestFileForm(userId), db);
-
-            const sharedChats = await Chats.getSharedChatsByFileId(file.id, db);
-            assert.strictEqual(sharedChats.length, 0);
-        });
-    });
 
     /* -------------------- SHARING OPERATIONS -------------------- */
 
