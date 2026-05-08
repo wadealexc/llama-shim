@@ -166,9 +166,15 @@
                 await tick();
                 await sendMessage(userMessage);
             } else {
-                // Edit user message
-                history.messages[messageId].content = content;
-                history.messages[messageId].files = files;
+                // Edit user message - reassign the message object so child
+                // components see a new prop reference and re-render. In-place
+                // mutation here would be invisible to UserMessage now that it
+                // takes `message` directly instead of (history, messageId).
+                history.messages[messageId] = {
+                    ...history.messages[messageId],
+                    content,
+                    files,
+                };
                 await updateChat();
             }
         } else {
@@ -267,8 +273,7 @@
                                 {#if history.messages[message.id].role === 'user'}
                                     <UserMessage
                                         {chatId}
-                                        {history}
-                                        messageId={message.id}
+                                        {message}
                                         isFirstMessage={messageIdx === 0}
                                         siblings={getSiblingIds(history, message)}
                                         {goToSibling}

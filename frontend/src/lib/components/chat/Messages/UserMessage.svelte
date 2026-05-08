@@ -4,7 +4,7 @@
     import { tick } from 'svelte';
     import { user as _user, editScrollPosition } from '$lib/stores';
     import { copyToClipboard as _copyToClipboard, dataUrlToBlobUrl, formatDate } from '$lib/utils';
-    import type { ChatHistory, ChatMessage, ChatMessageFile } from '@backend/routes/types';
+    import type { ChatMessage, ChatMessageFile } from '@backend/routes/types';
 
     import FileItem from './FileItem.svelte';
     import Markdown from './Markdown.svelte';
@@ -18,8 +18,7 @@
     dayjs.extend(localizedFormat);
 
     export let chatId: string;
-    export let history: ChatHistory;
-    export let messageId: string;
+    export let message: ChatMessage;
 
     export let siblings: string[];
 
@@ -41,17 +40,6 @@
     let editedFiles: ChatMessageFile[] = [];
 
     let editorRef: MessageEditor;
-
-    let message: ChatMessage = structuredClone(history.messages[messageId]);
-    $: if (history.messages) {
-        const current = history.messages[messageId];
-        if (current && (
-            message.content !== current.content ||
-            message.files?.length !== current.files?.length
-        )) {
-            message = structuredClone(current);
-        }
-    }
 
     const copyToClipboard = async (text: string) => {
         const res = await _copyToClipboard(text);
