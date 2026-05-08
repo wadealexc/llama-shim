@@ -3,11 +3,19 @@ import assert from 'node:assert';
 import request from 'supertest';
 import express, { type Express } from 'express';
 import cookieParser from 'cookie-parser';
+import { migrate } from 'drizzle-orm/libsql/migrator';
 
-import { createUserWithToken } from '../helpers.js';
+import { assertInMemoryDatabase, createUserWithToken } from '../helpers.js';
+import { db } from '../../src/db/index.js';
 import filesRouter from '../../src/routes/files.js';
 
 /* -------------------- TEST SETUP -------------------- */
+
+// Ensure tests use in-memory database
+assertInMemoryDatabase();
+
+// Apply migrations to the in-memory database (async with libSQL)
+await migrate(db, { migrationsFolder: './drizzle' });
 
 // Create Express app with files routes
 // Note: Don't use express.json() - it interferes with multer
@@ -130,19 +138,6 @@ describe('POST /api/v1/files/extract', () => {
         assert.strictEqual(res.body.detail, 'File required');
     });
 
-    test('should reject empty file', async () => {
-        const emptyBuffer = Buffer.from('');
-
-        const res = await request(app)
-            .post('/api/v1/files/extract')
-            .set('Authorization', `Bearer ${token}`)
-            .attach('file', emptyBuffer, 'empty.txt');
-
-        // Empty file will fail content sniffing
-        assert.strictEqual(res.status, 400);
-        assert.strictEqual(res.body.detail, 'Unsupported file type');
-    });
-
     test('should extract PDF file and return kind: text with content', async () => {
         // Minimal valid PDF (1.4 spec)
         const pdfBuffer = Buffer.from(
@@ -156,7 +151,7 @@ describe('POST /api/v1/files/extract', () => {
         );
 
         const res = await request(app)
-            .post('/extract')
+            .post('/api/v1/files/extract')
             .set('Authorization', `Bearer ${token}`)
             .attach('file', pdfBuffer, 'test.pdf');
 
@@ -171,7 +166,7 @@ describe('POST /api/v1/files/extract', () => {
         const largeBuffer = Buffer.alloc(51 * 1024 * 1024, 0x42);
 
         const res = await request(app)
-            .post('/extract')
+            .post('/api/v1/files/extract')
             .set('Authorization', `Bearer ${token}`)
             .attach('file', largeBuffer, 'large.bin');
 

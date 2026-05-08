@@ -1,4 +1,4 @@
-import { Router, type Response } from 'express';
+import { Router, type Response, type NextFunction } from 'express';
 import { PDFParse } from 'pdf-parse';
 import mammoth from 'mammoth';
 import multer from 'multer';
@@ -102,7 +102,19 @@ const upload = multer({
  * @body multipart form-data with 'file' field
  * @returns {Types.ChatMessageFile} - inline file data
  */
-router.post('/extract', requireAuth, upload.single('file'), async (
+// Wrap multer to surface size-limit errors as 413 instead of falling through
+// to Express's default error handler (which returns 500).
+const uploadSingle = (req: any, res: Response, next: NextFunction) => {
+    upload.single('file')(req, res, (err: any) => {
+        if (err instanceof multer.MulterError && err.code === 'LIMIT_FILE_SIZE') {
+            return res.status(413).json({ detail: 'File too large' });
+        }
+        if (err) return next(err);
+        next();
+    });
+};
+
+router.post('/extract', requireAuth, uploadSingle, async (
     multerReq,
     res: Response<ChatMessageFile | ErrorResponse>
 ) => {
