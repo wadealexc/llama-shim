@@ -2,7 +2,7 @@ import { z } from 'zod';
 
 import type { Tool, ToolContext, ToolSession, BeforeRequestOptions, ToolEmit } from '../types.js';
 import type { Browser } from '../../browser/browser.js';
-import type { LlamaManager } from '../../llama/llamaManager.js';
+import type { Llama } from '../../llama/types.js';
 import * as proto from '../../protocol/index.js';
 
 const InputSchema = z.object({
@@ -23,9 +23,9 @@ type Output = z.infer<typeof OutputSchema>;
 class LoadWebpage implements Tool<Input, Output> {
 
     browser: Browser;
-    llama: LlamaManager;
+    llama: Llama;
 
-    constructor(browser: Browser, llama: LlamaManager) {
+    constructor(browser: Browser, llama: Llama) {
         this.browser = browser;
         this.llama = llama;
     }

@@ -1,7 +1,7 @@
 import type { Response } from 'express';
 import chalk from 'chalk';
 
-import { LlamaManager } from '../../llama/llamaManager.js';
+import type { Llama } from '../../llama/types.js';
 import { db, Chats } from '../../db/index.js';
 import { emitSseEvent } from './helpers.js';
 import type { ChatRequestContext } from './prepare.js';
@@ -21,7 +21,7 @@ Create a chat title that summarizes the following user message:
 `;
 
 export async function doTasks(
-    llama: LlamaManager,
+    llama: Llama,
     taskModel: string,
     res: Response,
     ctx: ChatRequestContext,

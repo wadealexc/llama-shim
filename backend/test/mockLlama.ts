@@ -1,7 +1,7 @@
 import { Readable } from 'stream';
 import { Headers } from 'node-fetch';
 
-import type { LlamaRequest, LlamaResponse } from '../src/llama/llamaManager.js';
+import type { LlamaRequest, LlamaResponse } from '../src/llama/types.js';
 import LlamaStream from '../src/llama/llamaStream.js';
 
 import * as proto from '../src/protocol/index.js';

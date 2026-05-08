@@ -136,6 +136,23 @@ const ModelSchema = z.object({
  */
 export type ModelConfig = z.infer<typeof ModelSchema>;
 
+/**
+ * routedLlama settings — when set, the backend uses RoutedLlama instead of
+ * LlamaManager and forwards completions/tokenize to a remote kitsu backend.
+ * Only consulted when `KITSU_MODE=beta`.
+ *
+ * ```json
+ * "routedLlama": {
+ *     "url": "http://192.168.87.30:8071"
+ * }
+ * ```
+ */
+const RoutedLlamaSchema = z.object({
+    url: z.url(),
+});
+
+export type RoutedLlamaConfig = z.infer<typeof RoutedLlamaSchema>;
+
 // Main config schema with strict mode (rejects extra fields)
 const ConfigSchema = z.object({
     llamaCpp: LlamaCppSchema,
@@ -143,6 +160,7 @@ const ConfigSchema = z.object({
     ports: PortSchema,
     logs: LogSchema,
     models: ModelSchema,
+    routedLlama: RoutedLlamaSchema.optional(),
 }).strict();
 
 export type Config = z.infer<typeof ConfigSchema>;
@@ -202,6 +220,9 @@ async function validateFilesExist(config: Config) {
     } catch (err: any) {
         throw new Error(`config error locating log path: ${config.logs.path}; err: ${err}`);
     }
+
+    // Beta envs (RoutedLlama) don't ship local GGUFs — skip the file checks.
+    if (config.routedLlama) return;
 
     const modelConfig: ModelConfig = config.models;
     const basePath = modelConfig.path;

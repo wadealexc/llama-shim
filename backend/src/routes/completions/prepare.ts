@@ -1,4 +1,4 @@
-import { LlamaManager } from '../../llama/llamaManager.js';
+import type { Llama } from '../../llama/types.js';
 import { db, Chats, Models } from '../../db/index.js';
 import type { Model } from '../../db/index.js';
 import * as proto from '../../protocol/index.js';
@@ -32,7 +32,7 @@ export type ChatRequestContext = {
  */
 export async function prepareRequest(
     req: Types.TypedRequest<{}, Types.ChatCompletionForm>,
-    llama: LlamaManager,
+    llama: Llama,
     toolRegistry: ToolRegistry,
 ): Promise<ChatRequestContext> {
     const parsed = Types.ChatCompletionFormSchema.safeParse(req.body);

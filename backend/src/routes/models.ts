@@ -1,6 +1,6 @@
 import { Router, type Response, type NextFunction } from 'express';
 
-import type { LlamaManager } from '../llama/llamaManager.js';
+import type { Llama } from '../llama/types.js';
 import * as Types from './types/index.js';
 import { requireAuth, requireAdmin } from './middleware.js';
 import { db, Models, Users } from '../db/index.js';
@@ -36,7 +36,7 @@ router.get('/', requireAuth, async (
 
     try {
         // Get base models from LlamaManager to validate availability
-        const llama = req.app.locals.llama as LlamaManager;
+        const llama = req.app.locals.llama as Llama;
         const baseModelNames = llama.getAllModelNames();
 
         // Fetch custom models accessible to this user, filtered to those with available base models
@@ -125,7 +125,7 @@ router.post('/:modelId/wake', requireAuth, async (
     const { modelId } = req.params;
 
     try {
-        const llama = req.app.locals.llama as LlamaManager;
+        const llama = req.app.locals.llama as Llama;
 
         // Resolve custom model -> base model
         let resolvedModel: string = modelId;
@@ -176,7 +176,7 @@ router.post('/create', requireAuth, async (
 
     try {
         // Validate base model is available in LlamaManager
-        const llama = req.app.locals.llama as LlamaManager;
+        const llama = req.app.locals.llama as Llama;
         const baseModelNames = llama.getAllModelNames();
         if (!baseModelNames.includes(formData.baseModelId)) throw BadRequestError('base model not found');
 
@@ -291,7 +291,7 @@ router.post('/model/update', requireAuth, async (
 
         // If baseModelId is being changed, validate it's available in llamaManager
         if (formData.baseModelId !== model.baseModelId) {
-            const llama = req.app.locals.llama as LlamaManager;
+            const llama = req.app.locals.llama as Llama;
             const baseModelNames = llama.getAllModelNames();
 
             if (!baseModelNames.includes(formData.baseModelId))
@@ -392,7 +392,7 @@ router.get('/base', requireAdmin, async (
 
     try {
         // Get base models from LlamaManager
-        const llama = req.app.locals.llama as LlamaManager;
+        const llama = req.app.locals.llama as Llama;
         const baseModelNames = llama.getAllModelNames();
 
         const baseModels: Types.ModelResponse[] = baseModelNames.map(name => {

@@ -1,7 +1,8 @@
 import { Router, type Response, type NextFunction } from 'express';
 import chalk from 'chalk';
+import { z } from 'zod';
 
-import { LlamaManager, type LlamaResponse } from '../../llama/llamaManager.js';
+import type { Llama, LlamaResponse } from '../../llama/types.js';
 import * as Types from '../types/index.js';
 import { requireAuth } from '../middleware.js';
 import * as proto from '../../protocol/index.js';
@@ -57,7 +58,7 @@ router.post('/custom-completions', requireAuth, async (
 ) => {
     console.log(`custom-completions: received request`);
 
-    const llama = req.app.locals.llama as LlamaManager;
+    const llama = req.app.locals.llama as Llama;
     const toolRegistry = req.app.locals.tools as ToolRegistry;
 
     const ctrl = new AbortController();
@@ -262,7 +263,7 @@ router.post('/completions', async (
     res: Response,
     next: NextFunction,
 ) => {
-    const llama = req.app.locals.llama as LlamaManager;
+    const llama = req.app.locals.llama as Llama;
 
     const body: proto.CompletionRequest = req.body;
     if (!body.model || !body.messages) {
@@ -297,6 +298,43 @@ router.post('/completions', async (
 
         const { timings: _timings, ...response } = result.value;
         return res.status(200).json(response);
+    }
+});
+
+/* -------------------- TOKENIZE -------------------- */
+
+const TokenizeFormSchema = z.object({
+    content: z.string(),
+    model: z.string(),
+});
+
+/**
+ * POST /api/v1/chat/tokenize
+ * Access Control: None (unauthenticated)
+ *
+ * Returns the token count of `content` under the named model. Routed through
+ * `llama.tokenize`, which queues against the same model the completions
+ * endpoint uses, so the count reflects the active model's tokenizer.
+ */
+router.post('/tokenize', async (
+    req: Types.TypedRequest<{}, z.infer<typeof TokenizeFormSchema>>,
+    res: Response<{ count: number } | Types.ErrorResponse>,
+) => {
+    const body = TokenizeFormSchema.safeParse(req.body);
+    if (!body.success) {
+        return res.status(400).json({ detail: 'Invalid request body', errors: body.error.issues });
+    }
+
+    const llama = req.app.locals.llama as Llama;
+
+    const ctrl = new AbortController();
+    res.once('close', () => ctrl.abort());
+
+    try {
+        const count = await llama.tokenize(body.data.content, body.data.model, ctrl.signal);
+        return res.status(200).json({ count });
+    } catch (err: any) {
+        return res.status(500).json({ detail: err?.message ?? String(err) });
     }
 });
 

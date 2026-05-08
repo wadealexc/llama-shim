@@ -3,13 +3,14 @@ import * as fs from 'node:fs';
 import * as readline from 'node:readline';
 import http from 'node:http';
 import { spawn, execSync, ChildProcess } from 'child_process';
-import fetch, { Headers } from 'node-fetch';
+import fetch from 'node-fetch';
 
 import chalk from 'chalk';
 
 import { type ModelConfig, type ModelEntry } from '../config.js';
 import * as proto from '../protocol/index.js';
 import LlamaStream from './llamaStream.js';
+import type { Llama, LlamaRequest, LlamaResponse } from './types.js';
 
 // Command to start llama‑server via submodule
 const LLAMA_SERVER_BIN = '../llama.cpp/build/bin/llama-server';
@@ -36,7 +37,7 @@ const LOOP_INTERVAL_MS = 100;
 // rounds, causing a "socket hang up" on the next round's fetch.
 const LLAMA_HTTP_AGENT = new http.Agent({ keepAlive: false });
 
-type Llama = {
+type LlamaInstance = {
     model: proto.ModelInfo,
     serverHost: string,
     serverPort: string,
@@ -46,21 +47,6 @@ type Llama = {
         proc: ChildProcess,
         exited: Promise<void>,
     } | null,
-};
-
-export type LlamaRequest = {
-    body: proto.CompletionRequest,
-    signal: AbortSignal,
-    emit?: {
-        onQueue: () => void,
-        onLoading: () => void,
-    },
-};
-
-export type LlamaResponse = {
-    status: number,
-    headers: Headers,
-    stream: LlamaStream,
 };
 
 // VRAM usage
@@ -88,7 +74,7 @@ type TokenizeJob = {
 type Job = CompletionJob | TokenizeJob;
 
 type RequestQueueItem = {
-    llama: Llama,
+    llama: LlamaInstance,
     jobs: Job[],
 };
 
@@ -102,12 +88,12 @@ type RequestQueueItem = {
  * A single global `requestQueue` is driven by a polling loop (`startLoop`). The loop
  * handles model start/stop/swap and job dispatch.
  */
-export class LlamaManager {
+export class LlamaManager implements Llama {
 
-    private defaultLlama: Llama;
+    private defaultLlama: LlamaInstance;
 
     // Main models we can spin up to handle requests
-    private llamas: Map<string, Llama>;
+    private llamas: Map<string, LlamaInstance>;
     private requestQueue: RequestQueueItem[] = [];
 
     private sleepAfterMs: number;
@@ -133,7 +119,7 @@ export class LlamaManager {
             basePath: string,
             host: string,
             port: number,
-        ): Llama => {
+        ): LlamaInstance => {
             const name = model.alias ?? model.gguf;
 
             const modelPath = path.join(basePath, model.gguf.endsWith('.gguf')
@@ -302,7 +288,7 @@ export class LlamaManager {
      * once the model is active and the request is dispatched.
      */
     completions(req: LlamaRequest): Promise<LlamaResponse> {
-        const llama: Llama | undefined = this.llamas.get(req.body.model);
+        const llama: LlamaInstance | undefined = this.llamas.get(req.body.model);
         if (!llama) throw new Error(`LlamaManager: model not found: ${req.body.model}`);
 
         // Push job to existing queue entry or create a new one
@@ -401,7 +387,7 @@ export class LlamaManager {
      * Given a running llama-server process, sends an HTTP request to the server and
      * resolves/rejects the job with the result.
      */
-    async #send(llama: Llama, job: CompletionJob): Promise<void> {
+    async #send(llama: LlamaInstance, job: CompletionJob): Promise<void> {
         if (!llama.active) {
             job.reject(new Error('LlamaManager.#send: llama is not active'));
             return;
@@ -489,7 +475,7 @@ export class LlamaManager {
     /**
      * POST to llama-server's `/tokenize` endpoint and resolve the job with the token count.
      */
-    async #sendTokenize(llama: Llama, job: TokenizeJob): Promise<void> {
+    async #sendTokenize(llama: LlamaInstance, job: TokenizeJob): Promise<void> {
         if (!llama.active) {
             job.reject(new Error('LlamaManager.#sendTokenize: llama is not active'));
             return;
@@ -532,7 +518,7 @@ export class LlamaManager {
         }
     }
 
-    async #stop(llama: Llama): Promise<void> {
+    async #stop(llama: LlamaInstance): Promise<void> {
         if (!llama.active) return;
 
         // Shutdown handler that sends a kill signal to the process group, then waits
@@ -728,7 +714,7 @@ export class LlamaManager {
     /**
      * Ping llama-server until we get a success, indicating the HTTP server is running.
      */
-    async #pollServer(llama: Llama): Promise<void> {
+    async #pollServer(llama: LlamaInstance): Promise<void> {
         return new Promise<void>(async (resolve, reject) => {
             process.stdout.write(chalk.dim(` - loading model: ${chalk.magenta(llama.model.name)}\n`));
 
@@ -858,21 +844,21 @@ export class LlamaManager {
         ];
     }
 
-    getBaseLlamas(): Llama[] {
+    getBaseLlamas(): LlamaInstance[] {
         return [
             ...this.llamas.values()
                 .filter(v => v.model.mmprojPath === undefined)
         ];
     }
 
-    getVisionLlamas(): Llama[] {
+    getVisionLlamas(): LlamaInstance[] {
         return [
             ...this.llamas.values()
                 .filter(v => typeof v.model.mmprojPath === 'string')
         ];
     }
 
-    getStatus(model: Llama | string): 'idle' | 'queued' | 'active' {
+    getStatus(model: LlamaInstance | string): 'idle' | 'queued' | 'active' {
         const llama = typeof model === 'string' ? this.llamas.get(model) : model;
         if (!llama) {
             return 'idle';
@@ -922,7 +908,7 @@ function initTokenizeJob(request: { content: string; signal: AbortSignal }): Tok
 function createLogFiles(
     logDirectory: string,
     runCounter: number,
-    llama: Llama,
+    llama: LlamaInstance,
 ): [string, number, number] {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
 

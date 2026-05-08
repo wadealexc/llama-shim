@@ -1,7 +1,7 @@
 import { z } from 'zod';
 
 import type { Browser } from '../browser/browser.js';
-import type { LlamaManager } from '../llama/llamaManager.js';
+import type { Llama } from '../llama/types.js';
 import * as proto from '../protocol/index.js';
 
 export type BeforeRequestOptions = { webSearchEnabled: boolean };
@@ -95,7 +95,7 @@ export interface Tool<Input = unknown, Output = unknown> {
 
 export type ToolContext = {
     browser: Browser | undefined,
-    llama: LlamaManager,
+    llama: Llama,
 }
 
 export type ToolFactory<Input, Output> = (ctx: ToolContext) => Tool<Input, Output>;

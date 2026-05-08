@@ -8,6 +8,8 @@ import chalk from 'chalk';
 import { readConfig } from './config.js';
 import * as middleware from './server/middleware.js';
 import { LlamaManager } from './llama/llamaManager.js';
+import { RoutedLlama } from './llama/routedLlama.js';
+import type { Llama } from './llama/types.js';
 import * as Browser from './browser/browser.js';
 import { ToolRegistry } from './tools/registry.js';
 import authsRouter from './routes/auths.js';
@@ -20,8 +22,6 @@ import foldersRouter from './routes/folders.js';
 import filesRouter from './routes/files.js';
 import versionRouter from './routes/version.js';
 import healthRouter from './routes/health.js';
-import { MockLlama } from '../test/mockLlama.js';
-import { RoutedLlama } from '../test/routedLlama.js';
 
 /* -------------------- CONFIG -------------------- */
 
@@ -65,19 +65,30 @@ if (cfg.web.enable) {
     );
 }
 
-// Note - temp/routed llamas for testing while prod is running
-// const llama = new RoutedLlama(cfg.models) as unknown as LlamaManager;
-// const llama = new MockLlama() as unknown as LlamaManager;
+// In beta mode, route completions/tokenize to a remote prod backend instead
+// of running a local llama-server. The mode flag is set by the `beta:backend`
+// npm alias; the prod URL comes from beta's own config.json (written by
+// `beta:sync`).
+let llama: Llama;
+if (process.env.KITSU_MODE === 'beta') {
+    if (!cfg.routedLlama)
+        throw new Error('KITSU_MODE=beta requires `routedLlama` block in config.json');
 
-// Start llama-server
-const llama = new LlamaManager({
-    ports: cfg.ports.llamaCpp,
-    llamaServerVerbose: LLAMA_SERVER_VERBOSITY,
-    logDirectory: cfg.logs.path, logFilePrefix: logFilePrefix,
-    sleepAfterXSeconds: cfg.llamaCpp.sleepAfterXSeconds,
-    models: cfg.models,
-});
-llama.startDefault();
+    llama = new RoutedLlama({
+        models: cfg.models,
+        prodBackendURL: cfg.routedLlama.url,
+    });
+} else {
+    const manager = new LlamaManager({
+        ports: cfg.ports.llamaCpp,
+        llamaServerVerbose: LLAMA_SERVER_VERBOSITY,
+        logDirectory: cfg.logs.path, logFilePrefix: logFilePrefix,
+        sleepAfterXSeconds: cfg.llamaCpp.sleepAfterXSeconds,
+        models: cfg.models,
+    });
+    manager.startDefault();
+    llama = manager;
+}
 
 // Initialize tool registry
 const tools = new ToolRegistry({ browser, llama });
