@@ -272,6 +272,10 @@ router.post('/completions', async (
 
     const ctrl = new AbortController();
     res.once('close', () => ctrl.abort());
+    req.once('aborted', () => {
+        console.log(chalk.dim.yellow(`[completions] client aborted request`));
+        ctrl.abort();
+    });
 
     let llamaResponse: LlamaResponse;
     try {
@@ -329,6 +333,10 @@ router.post('/tokenize', async (
 
     const ctrl = new AbortController();
     res.once('close', () => ctrl.abort());
+    req.once('aborted', () => {
+        console.log(chalk.dim.yellow(`[tokenize] client aborted request`));
+        ctrl.abort();
+    });
 
     try {
         const count = await llama.tokenize(body.data.content, body.data.model, ctrl.signal);
